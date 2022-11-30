@@ -1,0 +1,84 @@
+version: "3"
+services:
+
+  haystack-api:
+    build:
+      context: ../../
+      dockerfile: Dockerfile-GPU
+      args:
+        - http_proxy=$HTTP_PROXY
+        - https_proxy=$HTTPS_PROXY
+        - no_proxy=$NO_PROXY
+    image: "appliedmlwf/odqa:haystack-api"
+    # in recent docker-compose version you can enable GPU resources. Make sure to fulfill the prerequisites listed here: https://docs.docker.com/compose/gpu-support/
+    deploy:
+      resources:
+        reservations:
+          devices:
+          - driver: nvidia
+            #count: 1
+            capabilities: [gpu]
+    # # Mount custom Pipeline YAML and custom Components.
+    # volumes:
+    #   - ./rest_api/pipeline:/home/user/rest_api/pipeline
+    ports:
+      - 8000:8000
+    restart: on-failure
+
+    volumes:
+      - $HOST_SOURCE:/home/user/data
+
+    environment:
+      # See rest_api/pipeline/pipelines.haystack-pipeline.yml for configurations of Search & Indexing Pipeline.
+      - DOCUMENTSTORE_PARAMS_HOST=elasticsearch
+        #- PIPELINE_YAML_PATH=/home/user/rest_api/pipeline/pipelines_dpr.haystack-pipeline.yml
+      - PIPELINE_YAML_PATH=$PIPELINE_PATH
+      - QUERY_PIPELINE_NAME=$PIPELINE_NAME
+      - INDEX_NAME=$INDEX_NAME
+      - CONCURRENT_REQUEST_PER_WORKER
+      - http_proxy=$HTTP_PROXY
+      - https_proxy=$HTTPS_PROXY
+      - no_proxy=$NO_PROXY
+      - COLBERT_OPT=$COLBERT_OPT
+      - CHECKPOINT_PATH=$CHECKPOINT_PATH
+      - IS_DICT_CHECKPOINT=$IS_DICT_CHECKPOINT
+    depends_on:
+      - elasticsearch
+    command: "/bin/bash -c 'sleep 10 && gunicorn rest_api.application:app -b 0.0.0.0 -k uvicorn.workers.UvicornWorker --workers 1 --timeout 600 --graceful-timeout 600'"
+
+  elasticsearch:
+    # This will start an empty elasticsearch instance (so you have to add your documents yourself)
+    #image: "elasticsearch:7.9.2"
+    # If you want a demo image instead that is "ready-to-query" with some indexed articles
+    # about countries and capital cities from Wikipedia:
+    #image: "dingke1980/elasticsearch-stack-overflow:1.0"
+    image: $ELASTICSEARCH_IMG
+    ports:
+      - 9200:9200
+    restart: on-failure
+    environment:
+      - discovery.type=single-node
+      - ES_JAVA_OPTS=-Xmx4g -Xms4g
+
+  ui:
+    build:
+      context: ../../ui
+      dockerfile: Dockerfile
+      args:
+        - http_proxy=$HTTP_PROXY
+        - https_proxy=$HTTPS_PROXY
+    image: "odqa:haystack-ui"
+    ports:
+      - 8501:8501
+    restart: on-failure
+    environment:
+      - API_ENDPOINT=http://haystack-api:8000
+      - EVAL_FILE=eval_labels_example.csv
+      # The value fot the following variables will be read from the host, if present.
+      # They can also be temporarily set for docker-compose, for example:
+      # DISABLE_FILE_UPLOAD=1 DEFAULT_DOCS_FROM_RETRIEVER=5 docker-compose up
+      - DISABLE_FILE_UPLOAD
+      - DEFAULT_QUESTION_AT_STARTUP
+      - DEFAULT_DOCS_FROM_RETRIEVER
+      - DEFAULT_NUMBER_OF_ANSWERS
+    command: "/bin/bash -c 'sleep 15 && python -m streamlit run ui/webapp.py $DATASET $MODE'"
