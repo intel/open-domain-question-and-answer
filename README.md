@@ -80,14 +80,14 @@ cd examples/odqa_pipelines
     #marco database
     ./run-demos.sh -r 1 -p colbert_faq -d gpu -n 0 -e marco 
     # ColBert optimized with pre-computation:
-    ./run-demos.sh -r 1 -p colbert_faq_opt -d gpu -n 0 -e marco 
+    ./run-demos.sh -r 1 -p colbert_opt_faq -d gpu -n 0 -e marco 
     ```
     **CPU:**
     ```bash
     ./run-demos.sh -r 1 -p colbert_faq -d cpu -n 0 -e marco 
     
     # ColBert optimized with pre-computation:
-    ./run-demos.sh -r 1 -p colbert_faq_opt -d cpu -n 0 -e marco 
+    ./run-demos.sh -r 1 -p colbert_opt_faq -d cpu -n 0 -e marco 
     ```
 - Pipeline3：FAISSDocumentStore->DPR→Docs2Answers
     

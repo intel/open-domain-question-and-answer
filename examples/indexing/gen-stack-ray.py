@@ -280,9 +280,9 @@ def parse_cmd():
     args = argparse.ArgumentParser(description=desc, epilog=' ', formatter_class=argparse.RawTextHelpFormatter)
     args.add_argument('-m', type=int, default=0, dest='mode', help='0: actual, 1: debug', choices=[0, 1])
     args.add_argument('-f', dest='force_download', help='force download so-ds', action='store_true', default=False)
-    args.add_argument('-d', type=str, default='emr', dest='ds', help='type of documentstore', choices=['emr'])
+    args.add_argument('-d', type=str, default='emr', dest='ds', help='type of documentstore', choices=['emr', 'colbert'])
     args.add_argument('-b', type=int, default=16, dest='bs', help='batch size for EMR')
-    args.add_argument('-ip', type=str, default='localhost', dest='host', help='Ip address of elasticsearch host')
+    args.add_argument('-p', type=str, default='localhost', dest='host', help='Ip address of elasticsearch host')
     return args.parse_args()
 
 

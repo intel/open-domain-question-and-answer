@@ -8,7 +8,7 @@ import json
 import pandas as pd
 import argparse, time, os
 
-FILENAME = {'dev': 'macro/dev_v2.1.json', 'train': 'macro/train_v2.1.json'}
+FILENAME = {'dev': 'marco/dev_v2.1.json', 'train': 'marco/train_v2.1.json'}
 
 class GenDocStoreBase:
     def __init__(self, cfg):
@@ -144,9 +144,9 @@ class GenDocStoreBase:
 
 
 def parse_cmd():
-    desc = 'generate documentstore for macro dataset...\n\n'
+    desc = 'generate documentstore for marco dataset...\n\n'
     args = argparse.ArgumentParser(description=desc, epilog=' ', formatter_class=argparse.RawTextHelpFormatter)
-    args.add_argument('-m', type=str, default='dev', dest='mode', help='dev or train', choices=['dev', 'train'])
+    args.add_argument('-m', type=str, default='train', dest='mode', help='dev or train', choices=['dev', 'train'])
     args.add_argument('-d', type=str, default='es', dest='ds', help='type of documentstore', choices=['es', 'faiss'])
     args.add_argument('-b', type=int, default=16, dest='bs', help='batch size for DPR')
     return args.parse_args()
