@@ -9,7 +9,7 @@ services:
         - http_proxy=$HTTP_PROXY
         - https_proxy=$HTTPS_PROXY
         - no_proxy=$NO_PROXY
-    image: "appliedmlwf/odqa:haystack-api"
+    image: "intel/ai-workflows:odqa-haystack-api-gpu"
     # in recent docker-compose version you can enable GPU resources. Make sure to fulfill the prerequisites listed here: https://docs.docker.com/compose/gpu-support/
     deploy:
       resources:
@@ -67,7 +67,7 @@ services:
       args:
         - http_proxy=$HTTP_PROXY
         - https_proxy=$HTTPS_PROXY
-    image: "odqa:haystack-ui"
+    image: "intel/ai-workflows:odqa-haystack-ui"
     ports:
       - 8501:8501
     restart: on-failure
