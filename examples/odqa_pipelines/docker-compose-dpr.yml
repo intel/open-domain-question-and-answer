@@ -8,7 +8,7 @@ services:
         - http_proxy=$HTTP_PROXY
         - https_proxy=$HTTPS_PROXY
         - no_proxy=$NO_PROXY
-    image: "appliedmlwf/odqa:haystack-api"
+    image: "intel/ai-workflows:odqa-haystack-api"
     # Mount custom Pipeline YAML and custom Components.
     volumes:
       - $HOST_SOURCE:/home/user/data
@@ -66,7 +66,7 @@ services:
       args:
         - http_proxy=$HTTP_PROXY
         - https_proxy=$HTTPS_PROXY
-    image: "odqa:haystack-ui"
+    image: "intel/ai-workflows:odqa-haystack-ui"
     #network_mode: host
     ports:
       - 8501:8501
