@@ -20,14 +20,14 @@ pipeline_dict = {
     'game-of-throne': 'extractive',
     'covid-19': 'faq',
     'stack-overflow': 'faq',
-    'macro': 'faq',
+    'marco': 'faq',
 }
 
 default_q_dict = {
     "game-of-throne": "Who is the father of Arya Stark?",
     "covid-19": "Can covid-19 be spread through air?",
     "stack-overflow": "python - how to get current date?",
-    "macro": "What's the deepest lake in the world?"
+    "marco": "What's the deepest lake in the world?"
 }
 
 # Adjust to a question that you would like users to see in the search bar when they load the UI:

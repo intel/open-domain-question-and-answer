@@ -59,7 +59,7 @@ class EmbeddingTask:
 class IndexingTask:
     def __init__(self):
         if config.ds == 'emr':
-            macro_mapping = {"mappings": {
+            marco_mapping = {"mappings": {
                 "properties": {
                     "content":          { "type": "text"  },
                     "Query_id":         { "type": "integer" },
@@ -70,13 +70,13 @@ class IndexingTask:
             }
             self.document_store = ElasticsearchDocumentStore(host=config.host, username="", password="",
                                                     index="document",
-                                                    custom_mapping=macro_mapping,
+                                                    custom_mapping=marco_mapping,
                                                     embedding_field="question_emb",
                                                     embedding_dim=768,
                                                     excluded_meta_data=["question_emb"])
 
         else:
-            macro_mapping = {"mappings": {
+            marco_mapping = {"mappings": {
                 "properties": {
                     "content":          { "type": "text"  },
                     "Query_id":         { "type": "integer" },
@@ -86,8 +86,8 @@ class IndexingTask:
                 } }
             }
             self.document_store = ElasticsearchDocumentStore(host=config.host, username="", password="",
-                                                    index="macro_colbert",
-                                                    custom_mapping=macro_mapping)
+                                                    index="marco_colbert",
+                                                    custom_mapping=marco_mapping)
 
 
     def __call__(self, batch: pd.DataFrame) -> pd.DataFrame:
@@ -160,10 +160,7 @@ class GenDocStoreBase:
         print('launching es & retriever...')
         ds = ray.data.from_modin(self.qa)
         time1 = time.time()
-        batch_size = 1
-        if self.cfg.ds == 'emr':
-            batch_size = self.cfg.bs
-        ds = ds.map_batches(EmbeddingTask, batch_format="pandas", batch_size=batch_szie, compute="actors")
+        ds = ds.map_batches(EmbeddingTask, batch_format="pandas", batch_size=1, compute="actors")
         ds.show(1)
         time2 = time.time()
         print(f"embedding total time ={time2 - time1}")
@@ -174,12 +171,11 @@ class GenDocStoreBase:
 
 
 def parse_cmd():
-    desc = 'generate documentstore for macro dataset...\n\n'
+    desc = 'generate documentstore for marco dataset...\n\n'
     args = argparse.ArgumentParser(description=desc, epilog=' ', formatter_class=argparse.RawTextHelpFormatter)
     args.add_argument('-m', type=str, default='train', dest='mode', help='dev or train', choices=['dev', 'train'])
     args.add_argument('-d', type=str, default='emr', dest='ds', help='type of pipeline', choices=['emr', 'colbert'])
-    args.add_argument('-b', type=int, default=16, dest='bs', help='batch size for EMR')
-    args.add_argument('-ip', type=str, default='localhost', dest='host', help='Ip address of elasticsearch host')
+    args.add_argument('-p', type=str, default='localhost', dest='host', help='Ip address of elasticsearch host')
     return args.parse_args()
 
 
