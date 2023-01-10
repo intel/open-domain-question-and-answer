@@ -10,7 +10,7 @@ mkdir data
 wget https://downloads.cs.stanford.edu/nlp/data/colbert/colbertv2/colbertv2.0.tar.gz 
 tar -xvzf colbertv2.0.tar.gz
 cp -rf ./colbertv2.0/* ./data/
-docker build -f Dockerfile-ray . -t haystack-ray
+docker build -f Dockerfile-ray . -t haystack-ray (You may need to set http_proxy/https_proxy ENV in Dockerfile-ray)
 ```
 #### 2. download the stackoverflow and Microsoft Marco dataset
  **Note:** 
@@ -89,19 +89,17 @@ Pull postgres image from the docker hub.
 dockr pull postgres:14.1-alpine
 ```
 
-Startup the postgres container and haystack-ray container.
+Startup the postgres container and haystack-ray container under the same network.
 ```bash
-docker run -d --name haystack-ray --network host --shm-size=8gb -e "discovery.type=single-node" haystack-ray:latest
-docker run -d --name postsql-db --network host -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres \
+docker network create overlay-haystack
+docker run --network overlay-haystack -itd --name haystack-ray -v $PWD/examples/indexing:/home/user/indexing --shm-size=8gb -e "discovery.type=single-node" haystack-ray:latest
+docker run --network overlay-haystack -d --name postsql-db -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres \
 -v ${host_path}/db:/var/lib/postgresql/data -p 5432:5432 postgres:14.1-alpine
 ```
 
 Create database in postgres container.
 ```bash
-docker exec -it postsql-db /bin/bash
-bash-5.1# psql --username postgres
-postgres=# \password postgres  #Change the database password to ensure that it is consistent with the settings.(POSTGRES_PASSWORD=postgres)
-postgres=# CREATE DATABASE haystack;
+docker exec -it postsql-db psql -U postgres -c "CREATE DATABASE haystack;"
 ```
 
 Access the haystack-ray container.
