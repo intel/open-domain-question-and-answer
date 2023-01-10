@@ -5,6 +5,7 @@ WORKDIR /home/user
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
     python3  \
     python3-pip \
+    wget \
     libpoppler-cpp-dev  \
     tesseract-ocr  \
     libtesseract-dev  \
