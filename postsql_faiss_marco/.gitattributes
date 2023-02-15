@@ -1,0 +1,2 @@
+faiss-index-so.json filter=lfs diff=lfs merge=lfs -text
+faiss-index-so.faiss filter=lfs diff=lfs merge=lfs -text
