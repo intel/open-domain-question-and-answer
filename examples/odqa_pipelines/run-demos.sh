@@ -119,4 +119,4 @@ fi
 
 echo "run the ${pipeline} with ${database} on ${device}"
 
-docker-compose --env-file $config -f $yaml_file up $build
+docker-compose --env-file $config -f $yaml_file up $build --force-recreate
