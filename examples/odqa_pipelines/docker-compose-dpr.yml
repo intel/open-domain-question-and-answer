@@ -44,7 +44,7 @@ services:
   postsql-db:
     # This will start an empty elasticsearch instance (so you have to add your documents yourself)
     #image: "elasticsearch:7.9.2"
-    image: "postgres:14.1-alpine"
+    image: $POSTSQL_IMG
     #image: "stackoverflow-es:latest"
     # If you want a demo image instead that is "ready-to-query" with some indexed articles
     # about countries and capital cities from Wikipedia:
@@ -54,8 +54,8 @@ services:
     ports:
       - 5432:5432
     restart: on-failure
-    volumes:
-      - $HOST_SOURCE/db:/var/lib/postgresql/data
+    #volumes:
+    #- $HOST_SOURCE/db:/var/lib/postgresql/data
     #environment:
       #- discovery.type=single-node
 

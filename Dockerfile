@@ -30,7 +30,7 @@ RUN pip install --no-cache-dir .[docstores,crawler,preprocessing,ocr,ray]
 RUN pip install --no-cache-dir rest_api/
 RUN pip install --no-cache-dir ColBERT/
 RUN pip install numba
-RUN python3 -m pip install intel_extension_for_pytorch -f https://software.intel.com/ipex-whl-stable
+RUN python3 -m pip install intel_extension_for_pytorch
 RUN pip install intel-openmp
 RUN ls /home/user
 RUN pip freeze
