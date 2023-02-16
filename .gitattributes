@@ -1,0 +1,2 @@
+examples/odqa_pipelines/faiss_data/marco filter=lfs diff=lfs merge=lfs -text
+examples/odqa_pipelines/faiss_data/stackoverflow filter=lfs diff=lfs merge=lfs -text
