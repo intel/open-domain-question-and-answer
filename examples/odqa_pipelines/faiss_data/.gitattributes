@@ -1,0 +1,11 @@
+marco/faiss-index-so.faiss.partab filter=lfs diff=lfs merge=lfs -text
+marco/faiss-index-so.faiss.partac filter=lfs diff=lfs merge=lfs -text
+marco/faiss-index-so.faiss.partad filter=lfs diff=lfs merge=lfs -text
+marco/faiss-index-so.json filter=lfs diff=lfs merge=lfs -text
+marco/faiss-index-so.faiss.partaa filter=lfs diff=lfs merge=lfs -text
+stackoverflow/faiss-index-so.faiss.partac filter=lfs diff=lfs merge=lfs -text
+stackoverflow/faiss-index-so.faiss.partad filter=lfs diff=lfs merge=lfs -text
+stackoverflow/faiss-index-so.faiss.partae filter=lfs diff=lfs merge=lfs -text
+stackoverflow/faiss-index-so.json filter=lfs diff=lfs merge=lfs -text
+stackoverflow/faiss-index-so.faiss.partaa filter=lfs diff=lfs merge=lfs -text
+stackoverflow/faiss-index-so.faiss.partab filter=lfs diff=lfs merge=lfs -text
