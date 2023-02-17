@@ -73,7 +73,18 @@ cd examples/odqa_pipelines
     ./run-demos.sh -r 1 -p emr_faq -d cpu -n 0 -e marco
     ```
     
-- Pipeline2: ElasticsearchDocumentStore->BM25Retriever->ColbertRanker-> Docs2Answers
+- Pipeline2: ElasticsearchDocumentStore->BM25Retriever->ColbertRanker-> Docs2Answers  
+    prepare colBert model:
+    ```bash
+    # download the colbert model and build the haystack-ray image
+    cd ../../
+    mkdir data
+    wget https://downloads.cs.stanford.edu/nlp/data/colbert/colbertv2/colbertv2.0.tar.gz 
+    tar -xvzf colbertv2.0.tar.gz
+    mv colbertv2.0/* data/
+    #or you can set HOST_SOURCE in config/env.marco.esds_bm25r_colbert or config/env.marco.esds_bm25r_colbert_opt file to where you place the model
+    cd examples/odqa_pipelines
+    ```
 
     **GPU:**
     ```bash
@@ -89,7 +100,21 @@ cd examples/odqa_pipelines
     # ColBert optimized with pre-computation:
     ./run-demos.sh -r 1 -p colbert_opt_faq -d cpu -n 0 -e marco 
     ```
-- Pipeline3：FAISSDocumentStore->DPR→Docs2Answers
+- Pipeline3：FAISSDocumentStore->DPR→Docs2Answers  
+    prepare faiss indexed file for stackoverflow:
+    ```bash
+    cd faiss_data/stackoverflow/
+    cat faiss-index-so.faiss.parta* > faiss-index-so.faiss
+    cd ../../
+    # change HOST_SOURCE in file config/env.stackoverflow.faiss_dpr to the path of faiss_data/stackoverflow/
+    ```
+    prepare faiss indexed file for marco:
+    ```bash
+    cd faiss_data/marco/
+    cat faiss-index-so.faiss.parta* > faiss-index-so.faiss
+    cd ../../
+    # change HOST_SOURCE in file config/env.marco.faiss_dpr to the path of faiss_data/marco/
+    ```
     
     **GPU:**
     ```bash
