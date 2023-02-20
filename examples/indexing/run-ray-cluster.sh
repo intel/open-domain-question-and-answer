@@ -137,7 +137,7 @@ if [[ $run_type = "startup_all" ]]; then
     head_name='head''-'${post_fix}
     es_image='elasticsearch:7.9.2'
     es_name='elasticsearch-'${post_fix}
-    docker run -d --name $es_name  --network host --shm-size=8gb -e "discovery.type=single-node" -e ES_JAVA_OPTS=-Xmx8g -Xms8g ${es_image}
+    docker run -d --name $es_name  --network host --shm-size=8gb -e "discovery.type=single-node" -e ES_JAVA_OPTS="-Xmx8g -Xms8g" ${es_image}
     sleep 10
     docker run -itd -p 8265:8265 --cap-add=NET_ADMIN --network host -v $PWD:/home/user/indexing --cpuset-cpus=${ray_head_cores_range} \
               --env-file ./env.ray \
