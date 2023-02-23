@@ -9,7 +9,8 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
     tesseract-ocr \
     wget \
     libtesseract-dev \
-    poppler-utils
+    poppler-utils \
+    libmkl-dev
 
 # Install PDF converter
 RUN wget --no-check-certificate https://dl.xpdfreader.com/xpdf-tools-linux-4.04.tar.gz && \
@@ -19,10 +20,9 @@ RUN wget --no-check-certificate https://dl.xpdfreader.com/xpdf-tools-linux-4.04.
 COPY haystack /home/user/haystack/
 COPY third_party/ColBERT /home/user/ColBERT/
 # Copy package files & models
-COPY setup.py setup.cfg pyproject.toml VERSION.txt LICENSE README.md models* /home/user/
+COPY  pyproject.toml VERSION.txt LICENSE README.md models* /home/user/
 # Copy REST API code
-COPY rest_api /home/user/rest_api/
-#COPY faiss-index-so.json faiss-index-so.faiss /home/user/
+COPY rest_api/ /home/user/rest_api/
 # Install package
 RUN pip install torch torchvision --force-reinstall --extra-index-url https://download.pytorch.org/whl/cpu
 RUN pip install --upgrade pip
@@ -30,7 +30,8 @@ RUN pip install --no-cache-dir .[docstores,crawler,preprocessing,ocr,ray]
 RUN pip install --no-cache-dir rest_api/
 RUN pip install --no-cache-dir ColBERT/
 RUN pip install numba
-RUN python3 -m pip install intel_extension_for_pytorch
+#RUN pip install faiss-1.6.3-py3-none-any.whl
+RUN python3 -m pip install intel-extension-for-pytorch
 RUN pip install intel-openmp
 RUN ls /home/user
 RUN pip freeze

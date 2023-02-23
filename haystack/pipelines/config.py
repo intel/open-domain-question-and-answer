@@ -14,14 +14,15 @@ from jsonschema.exceptions import ValidationError
 
 from haystack import __version__
 from haystack.nodes.base import BaseComponent, RootNode
-from haystack.nodes._json_schema import inject_definition_in_schema, JSON_SCHEMAS_PATH
+from haystack.nodes._json_schema import load_schema, inject_definition_in_schema
 from haystack.errors import PipelineError, PipelineConfigError, PipelineSchemaError
 
 
 logger = logging.getLogger(__name__)
 
 
-VALID_INPUT_REGEX = re.compile(r"^[-a-zA-Z0-9_/\\.:]+$")
+VALID_KEY_REGEX = re.compile(r"^[-\w/\\.:*]+$")
+VALID_VALUE_REGEX = re.compile(r"^[-\w/\\.:* \[\]]+$")
 VALID_ROOT_NODES = ["Query", "File"]
 
 
@@ -56,7 +57,7 @@ def get_pipeline_definition(pipeline_config: Dict[str, Any], pipeline_name: Opti
 
 def get_component_definitions(
     pipeline_config: Dict[str, Any], overwrite_with_env_variables: bool = True
-) -> Dict[str, Any]:
+) -> Dict[str, Dict[str, Any]]:
     """
     Returns the definitions of all components from a given pipeline config.
 
@@ -97,7 +98,11 @@ def read_pipeline_config_from_yaml(path: Path) -> Dict[str, Any]:
         return yaml.safe_load(stream)
 
 
-def validate_config_strings(pipeline_config: Any):
+JSON_FIELDS = ["custom_query"]
+SKIP_VALIDATION_KEYS = ["prompt_text"]  # PromptTemplate, PromptNode
+
+
+def validate_config_strings(pipeline_config: Any, is_value: bool = False):
     """
     Ensures that strings used in the pipelines configuration
     contain only alphanumeric characters and basic punctuation.
@@ -105,15 +110,33 @@ def validate_config_strings(pipeline_config: Any):
     try:
         if isinstance(pipeline_config, dict):
             for key, value in pipeline_config.items():
-                validate_config_strings(key)
-                validate_config_strings(value)
+                # FIXME find a better solution
+                # Some nodes take parameters that expect JSON input,
+                # like `ElasticsearchDocumentStore.custom_query`
+                # These parameters fail validation using the standard input regex,
+                # so they're validated separately.
+                #
+                # Note that these fields are checked by name: if two nodes have a field
+                # with the same name, one of which is JSON and the other not,
+                # this hack will break.
+                if key in JSON_FIELDS:
+                    try:
+                        json.loads(value)
+                    except json.decoder.JSONDecodeError as e:
+                        raise PipelineConfigError(f"'{pipeline_config}' does not contain valid JSON.")
+                elif key in SKIP_VALIDATION_KEYS:
+                    continue
+                else:
+                    validate_config_strings(key)
+                    validate_config_strings(value, is_value=True)
 
         elif isinstance(pipeline_config, list):
             for value in pipeline_config:
-                validate_config_strings(value)
+                validate_config_strings(value, is_value=True)
 
         else:
-            if not VALID_INPUT_REGEX.match(str(pipeline_config)):
+            valid_regex = VALID_VALUE_REGEX if is_value else VALID_KEY_REGEX
+            if not valid_regex.match(str(pipeline_config)):
                 raise PipelineConfigError(
                     f"'{pipeline_config}' is not a valid variable name or value. "
                     "Use alphanumeric characters or dash, underscore and colon only."
@@ -160,7 +183,12 @@ def build_component_dependency_graph(
     return graph
 
 
-def validate_yaml(path: Path, strict_version_check: bool = False, overwrite_with_env_variables: bool = True):
+def validate_yaml(
+    path: Path,
+    strict_version_check: bool = False,
+    overwrite_with_env_variables: bool = True,
+    extras: Optional[str] = None,
+):
     """
     Ensures that the given YAML file can be loaded without issues.
 
@@ -178,16 +206,20 @@ def validate_yaml(path: Path, strict_version_check: bool = False, overwrite_with
                                          to change index name param for an ElasticsearchDocumentStore, an env
                                          variable 'MYDOCSTORE_PARAMS_INDEX=documents-2021' can be set. Note that an
                                          `_` sign must be used to specify nested hierarchical properties.
+    :param extras: which values are allowed in the `extras` field (for example, `ray`). If None, does not allow the `extras` field at all.
     :return: None if validation is successful
     :raise: `PipelineConfigError` in case of issues.
     """
     pipeline_config = read_pipeline_config_from_yaml(path)
-    validate_config(pipeline_config=pipeline_config, strict_version_check=strict_version_check)
-    logging.debug(f"'{path}' contains valid Haystack pipelines.")
+    validate_config(pipeline_config=pipeline_config, strict_version_check=strict_version_check, extras=extras)
+    logging.debug("'%s' contains valid Haystack pipelines.", path)
 
 
 def validate_config(
-    pipeline_config: Dict[str, Any], strict_version_check: bool = False, overwrite_with_env_variables: bool = True
+    pipeline_config: Dict[str, Any],
+    strict_version_check: bool = False,
+    overwrite_with_env_variables: bool = True,
+    extras: Optional[str] = None,
 ):
     """
     Ensures that the given YAML file can be loaded without issues.
@@ -206,10 +238,11 @@ def validate_config(
                                          to change index name param for an ElasticsearchDocumentStore, an env
                                          variable 'MYDOCSTORE_PARAMS_INDEX=documents-2021' can be set. Note that an
                                          `_` sign must be used to specify nested hierarchical properties.
+    :param extras: which values are allowed in the `extras` field (for example, `ray`). If None, does not allow the `extras` field at all.
     :return: None if validation is successful
     :raise: `PipelineConfigError` in case of issues.
     """
-    validate_schema(pipeline_config=pipeline_config, strict_version_check=strict_version_check)
+    validate_schema(pipeline_config=pipeline_config, strict_version_check=strict_version_check, extras=extras)
 
     for pipeline_definition in pipeline_config["pipelines"]:
         component_definitions = get_component_definitions(
@@ -218,7 +251,7 @@ def validate_config(
         validate_pipeline_graph(pipeline_definition=pipeline_definition, component_definitions=component_definitions)
 
 
-def validate_schema(pipeline_config: Dict, strict_version_check: bool = False) -> None:
+def validate_schema(pipeline_config: Dict, strict_version_check: bool = False, extras: Optional[str] = None) -> None:
     """
     Check that the YAML abides the JSON schema, so that every block
     of the pipeline configuration file contains all required information
@@ -229,10 +262,19 @@ def validate_schema(pipeline_config: Dict, strict_version_check: bool = False) -
 
     :param pipeline_config: the configuration to validate
     :param strict_version_check: whether to fail in case of a version mismatch (throws a warning otherwise)
+    :param extras: which values are allowed in the `extras` field (for example, `ray`). If None, does not allow the `extras` field at all.
     :return: None if validation is successful
     :raise: `PipelineConfigError` in case of issues.
     """
     validate_config_strings(pipeline_config)
+
+    # Check that the extras are respected
+    extras_in_config = pipeline_config.get("extras", None)
+    if (not extras and extras_in_config) or (extras and extras_in_config not in extras):
+        raise PipelineConfigError(
+            f"Cannot use this class to load a YAML with 'extras: {extras_in_config}'. "
+            "Use the proper class, for example 'RayPipeline'."
+        )
 
     # Check for the version manually (to avoid validation errors)
     pipeline_version = pipeline_config.get("version", None)
@@ -256,8 +298,8 @@ def validate_schema(pipeline_config: Dict, strict_version_check: bool = False) -
                 "and fix your configuration accordingly."
             )
 
-    with open(JSON_SCHEMAS_PATH / f"haystack-pipeline-master.schema.json", "r") as schema_file:
-        schema = json.load(schema_file)
+    # Load the json schema, and create one if it doesn't exist yet
+    schema = load_schema()
 
     # Remove the version value from the schema to prevent validation errors on it - a version only have to be present.
     del schema["properties"]["version"]["const"]
@@ -305,7 +347,7 @@ def validate_schema(pipeline_config: Dict, strict_version_check: bool = False) -
                 f"Validation failed. {validation.message}. {error_location} " "See the stacktrace for more information."
             ) from validation
 
-    logging.debug(f"The given configuration is valid according to the JSON schema.")
+    logging.debug("The given configuration is valid according to the JSON schema.")
 
 
 def validate_pipeline_graph(pipeline_definition: Dict[str, Any], component_definitions: Dict[str, Any]):
@@ -319,7 +361,7 @@ def validate_pipeline_graph(pipeline_definition: Dict[str, Any], component_defin
     graph = _init_pipeline_graph(root_node_name=root_node_name)
     for node in pipeline_definition["nodes"]:
         graph = _add_node_to_pipeline_graph(graph=graph, node=node, components=component_definitions)
-    logging.debug(f"The graph for pipeline '{pipeline_definition['name']}' is valid.")
+    logging.debug("The graph for pipeline '%s' is valid.", pipeline_definition["name"])
 
 
 def _find_root_in_pipeline_definition(pipeline_definition: Dict[str, Any]):
@@ -355,7 +397,10 @@ def _init_pipeline_graph(root_node_name: Optional[str]) -> nx.DiGraph:
 
 
 def _add_node_to_pipeline_graph(
-    graph: nx.DiGraph, components: Dict[str, Dict[str, str]], node: Dict[str, Any], instance: BaseComponent = None
+    graph: nx.DiGraph,
+    components: Dict[str, Dict[str, Any]],
+    node: Dict[str, Any],
+    instance: Optional[BaseComponent] = None,
 ) -> nx.DiGraph:
     """
     Adds a single node to the provided graph, performing all necessary validation steps.
@@ -411,64 +456,69 @@ def _add_node_to_pipeline_graph(
 
     graph.add_node(node["name"], component=instance, inputs=node["inputs"])
 
-    for input_node in node["inputs"]:
+    try:
+        for input_node in node["inputs"]:
 
-        # Separate node and edge name, if specified
-        input_node_name, input_edge_name = input_node, None
-        if "." in input_node:
-            input_node_name, input_edge_name = input_node.split(".")
+            # Separate node and edge name, if specified
+            input_node_name, input_edge_name = input_node, None
+            if "." in input_node:
+                input_node_name, input_edge_name = input_node.split(".")
 
-        root_node_name = list(graph.nodes)[0]
-        if input_node == root_node_name:
-            input_edge_name = "output_1"
-
-        elif input_node in VALID_ROOT_NODES:
-            raise PipelineConfigError(
-                f"This pipeline seems to contain two root nodes. "
-                f"You can only use one root node (nodes named {' or '.join(VALID_ROOT_NODES)} per pipeline."
-            )
-
-        else:
-            # Validate node definition and edge name
-            input_node_type = _get_defined_node_class(node_name=input_node_name, components=components)
-            input_node_edges_count = input_node_type.outgoing_edges
-
-            if not input_edge_name:
-                if input_node_edges_count != 1:  # Edge was not specified, but input node has many outputs
-                    raise PipelineConfigError(
-                        f"Can't connect {input_node_name} to {node['name']}: "
-                        f"{input_node_name} has {input_node_edges_count} outgoing edges. "
-                        "Please specify the output edge explicitly (like 'filetype_classifier.output_2')."
-                    )
+            root_node_name = list(graph.nodes)[0]
+            if input_node == root_node_name:
                 input_edge_name = "output_1"
 
-            if not input_edge_name.startswith("output_"):
+            elif input_node in VALID_ROOT_NODES:
                 raise PipelineConfigError(
-                    f"'{input_edge_name}' is not a valid edge name. "
-                    "It must start with 'output_' and must contain no dots."
+                    f"This pipeline seems to contain two root nodes. "
+                    f"You can only use one root node (nodes named {' or '.join(VALID_ROOT_NODES)} per pipeline."
                 )
 
-            requested_edge_name = input_edge_name.split("_")[1]
+            else:
+                # Validate node definition and edge name
+                input_node_type = _get_defined_node_class(node_name=input_node_name, components=components)
+                component_params: Dict[str, Any] = components[input_node_name].get("params", {})
+                input_node_edges_count = input_node_type._calculate_outgoing_edges(component_params=component_params)
 
-            try:
-                requested_edge = int(requested_edge_name)
-            except ValueError:
-                raise PipelineConfigError(
-                    f"You must specified a numbered edge, like filetype_classifier.output_2, not {input_node}"
-                )
+                if not input_edge_name:
+                    if input_node_edges_count != 1:  # Edge was not specified, but input node has many outputs
+                        raise PipelineConfigError(
+                            f"Can't connect {input_node_name} to {node['name']}: "
+                            f"{input_node_name} has {input_node_edges_count} outgoing edges. "
+                            "Please specify the output edge explicitly (like 'filetype_classifier.output_2')."
+                        )
+                    input_edge_name = "output_1"
 
-            if not requested_edge <= input_node_edges_count:
-                raise PipelineConfigError(
-                    f"Cannot connect '{node['name']}' to '{input_node}', as {input_node_name} has only "
-                    f"{input_node_edges_count} outgoing edge(s)."
-                )
+                if not input_edge_name.startswith("output_"):
+                    raise PipelineConfigError(
+                        f"'{input_edge_name}' is not a valid edge name. "
+                        "It must start with 'output_' and must contain no dots."
+                    )
 
-        graph.add_edge(input_node_name, node["name"], label=input_edge_name)
+                requested_edge_name = input_edge_name.split("_")[1]
 
-        # Check if adding this edge created a loop in the pipeline graph
-        if not nx.is_directed_acyclic_graph(graph):
-            graph.remove_node(node["name"])
-            raise PipelineConfigError(f"Cannot add '{node['name']}': it will create a loop in the pipeline.")
+                try:
+                    requested_edge = int(requested_edge_name)
+                except ValueError:
+                    raise PipelineConfigError(
+                        f"You must specified a numbered edge, like filetype_classifier.output_2, not {input_node}"
+                    )
+
+                if not requested_edge <= input_node_edges_count:
+                    raise PipelineConfigError(
+                        f"Cannot connect '{node['name']}' to '{input_node}', as {input_node_name} has only "
+                        f"{input_node_edges_count} outgoing edge(s)."
+                    )
+
+            graph.add_edge(input_node_name, node["name"], label=input_edge_name)
+
+            # Check if adding this edge created a loop in the pipeline graph
+            if not nx.is_directed_acyclic_graph(graph):
+                raise PipelineConfigError(f"Cannot add '{node['name']}': it will create a loop in the pipeline.")
+
+    except PipelineConfigError:
+        graph.remove_node(node["name"])
+        raise
 
     return graph
 

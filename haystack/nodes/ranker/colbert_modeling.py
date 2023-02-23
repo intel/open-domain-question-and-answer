@@ -94,7 +94,6 @@ class ColBERTRanker(BaseRanker):
         start = time.time()
         Q = self._encode_query(query, batch_size=1, to_cpu=to_cpu)
         time1 = time.time()
-        
         if config.COLBERT_OPT == "False" :
             docs_str = [d.content for d in documents]
             docs = self._encode_multiple_docs(docs_str, batch_size=self.batch_size, to_cpu=to_cpu)
@@ -128,11 +127,11 @@ class ColBERTRanker(BaseRanker):
             sorted_documents.append(doc)
 
         time4 = time.time()
-        logger.info(f"{config.BENCHMARK_LOG_TAG} request_id = {request_id['id']} query_encode_time: {time1-start}")
-        logger.info(f"{config.BENCHMARK_LOG_TAG} request_id = {request_id['id']} docs_encode_time: {time2-time1}")
-        logger.info(f"{config.BENCHMARK_LOG_TAG} request_id = {request_id['id']} score_time: {time3-time2}")
-        logger.info(f"{config.BENCHMARK_LOG_TAG} request_id = {request_id['id']} sort_docs_time: {time4-time3}")
-        logger.info(f"{config.BENCHMARK_LOG_TAG} request_id = {request_id['id']} total_rank_time: {time4-start}")
+        logger.info(f"{config.BENCHMARK_LOG_TAG} {{request_id: {request_id['id']}}} {{query_encode_time: {time1-start}}}")
+        logger.info(f"{config.BENCHMARK_LOG_TAG} {{request_id: {request_id['id']}}} {{docs_encode_time: {time2-time1}}}")
+        logger.info(f"{config.BENCHMARK_LOG_TAG} {{request_id: {request_id['id']}}} {{score_time: {time3-time2}}}")
+        logger.info(f"{config.BENCHMARK_LOG_TAG} {{request_id: {request_id['id']}}} {{sort_docs_time: {time4-time3}}}")
+        logger.info(f"{config.BENCHMARK_LOG_TAG} {{request_id: {request_id['id']}}} {{total_rank_time: {time4-start}}}")
         return sorted_documents[:top_k]
 
     def predict_batch(

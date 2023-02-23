@@ -6,7 +6,7 @@ from multiprocessing.pool import Pool
 from collections import namedtuple
 
 from rapidfuzz import fuzz
-from tqdm import tqdm
+from tqdm.auto import tqdm
 
 
 _CandidateScore = namedtuple("_CandidateScore", ["context_id", "candidate_id", "score"])
@@ -96,7 +96,7 @@ def match_context(
     candidates: Generator[Tuple[str, str], None, None],
     threshold: float = 65.0,
     show_progress: bool = False,
-    num_processes: int = None,
+    num_processes: Optional[int] = None,
     chunksize: int = 1,
     min_length: int = 100,
     boost_split_overlaps: bool = True,
@@ -145,6 +145,7 @@ def match_context(
     finally:
         if pool:
             pool.close()
+            pool.join()
 
 
 def match_contexts(
@@ -152,7 +153,7 @@ def match_contexts(
     candidates: Generator[Tuple[str, str], None, None],
     threshold: float = 65.0,
     show_progress: bool = False,
-    num_processes: int = None,
+    num_processes: Optional[int] = None,
     chunksize: int = 1,
     min_length: int = 100,
     boost_split_overlaps: bool = True,
@@ -212,3 +213,4 @@ def match_contexts(
     finally:
         if pool:
             pool.close()
+            pool.join()
