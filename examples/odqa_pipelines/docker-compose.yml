@@ -35,8 +35,8 @@ services:
       #- ONEDNN_VERBOSE=1
       - KMP_BLOCKTIME=20
       - MKL_ENABLE_INSTRUCTIONS=AVX512_E1
-      - LD_PRELOAD=/usr/local/lib/libiomp5.so
-      - KMP_AFFINITY=granularity=fine,verbose,compact,1,0
+        #- LD_PRELOAD=/usr/local/lib/libiomp5.so
+        #- KMP_AFFINITY=granularity=fine,verbose,compact,1,0
       #- MKL_VERBOSE=1
       #- MKL_NUM_THREADS=48
       #- OMP_NUM_THREADS=48
@@ -85,7 +85,7 @@ services:
     environment:
       - API_ENDPOINT=http://haystack-api:8000
       #- API_ENDPOINT=http://localhost:8000
-      - EVAL_FILE=eval_labels_example.csv
+      - EVAL_FILE=ui/eval_labels_example.csv
       # The value fot the following variables will be read from the host, if present.
       # They can also be temporarily set for docker-compose, for example:
       # DISABLE_FILE_UPLOAD=1 DEFAULT_DOCS_FROM_RETRIEVER=5 docker-compose up

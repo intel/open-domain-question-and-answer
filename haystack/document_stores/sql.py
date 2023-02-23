@@ -2,6 +2,7 @@ from typing import Any, Dict, Union, List, Optional, Generator
 
 import logging
 import itertools
+import json
 from uuid import uuid4
 
 import numpy as np
@@ -19,6 +20,8 @@ try:
         text,
         JSON,
         ForeignKeyConstraint,
+        UniqueConstraint,
+        TypeDecorator,
     )
     from sqlalchemy.ext.declarative import declarative_base
     from sqlalchemy.orm import relationship, sessionmaker
@@ -29,12 +32,26 @@ except (ImportError, ModuleNotFoundError) as ie:
     _optional_component_not_installed(__name__, "sql", ie)
 
 from haystack.schema import Document, Label, Answer
-from haystack.document_stores.base import BaseDocumentStore
+from haystack.document_stores.base import BaseDocumentStore, FilterType
 from haystack.document_stores.filter_utils import LogicalFilterClause
 
 
 logger = logging.getLogger(__name__)
 Base = declarative_base()  # type: Any
+
+
+class ArrayType(TypeDecorator):
+
+    impl = String
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        return json.dumps(value)
+
+    def process_result_value(self, value, dialect):
+        if value is not None:
+            return json.loads(value)
+        return value
 
 
 class ORMBase(Base):
@@ -52,9 +69,11 @@ class DocumentORM(ORMBase):
     content_type = Column(Text, nullable=True)
     # primary key in combination with id to allow the same doc in different indices
     index = Column(String(100), nullable=False, primary_key=True)
-    vector_id = Column(String(100), unique=True, nullable=True)
+    vector_id = Column(String(100), nullable=True)
     # speeds up queries for get_documents_by_vector_ids() by having a single query that returns joined metadata
     meta = relationship("MetaDocumentORM", back_populates="documents", lazy="joined")
+
+    __table_args__ = (UniqueConstraint("index", "vector_id", name="index_vector_id_uc"),)
 
 
 class MetaDocumentORM(ORMBase):
@@ -62,6 +81,7 @@ class MetaDocumentORM(ORMBase):
 
     name = Column(String(100), index=True)
     value = Column(Text, index=False)
+    # value = Column(ArrayType(100), index=True)
     documents = relationship("DocumentORM", back_populates="meta")
 
     document_id = Column(String(100), nullable=False, index=True)
@@ -115,7 +135,7 @@ class SQLDocumentStore(BaseDocumentStore):
         label_index: str = "label",
         duplicate_documents: str = "overwrite",
         check_same_thread: bool = False,
-        isolation_level: str = None,
+        isolation_level: Optional[str] = None,
     ):
         """
         An SQL backed DocumentStore. Currently supports SQLite, PostgreSQL and MySQL backends.
@@ -209,7 +229,7 @@ class SQLDocumentStore(BaseDocumentStore):
     def get_all_documents(
         self,
         index: Optional[str] = None,
-        filters: Optional[Dict[str, Any]] = None,  # TODO: Adapt type once we allow extended filters in SQLDocStore
+        filters: Optional[FilterType] = None,
         return_embedding: Optional[bool] = None,
         batch_size: int = 10_000,
         headers: Optional[Dict[str, str]] = None,
@@ -227,7 +247,7 @@ class SQLDocumentStore(BaseDocumentStore):
     def get_all_documents_generator(
         self,
         index: Optional[str] = None,
-        filters: Optional[Dict[str, Any]] = None,  # TODO: Adapt type once we allow extended filters in SQLDocStore
+        filters: Optional[FilterType] = None,
         return_embedding: Optional[bool] = None,
         batch_size: int = 10_000,
         headers: Optional[Dict[str, str]] = None,
@@ -261,7 +281,7 @@ class SQLDocumentStore(BaseDocumentStore):
     def _query(
         self,
         index: Optional[str] = None,
-        filters: Optional[Dict[str, Any]] = None,  # TODO: Adapt type once we allow extended filters in SQLDocStore
+        filters: Optional[FilterType] = None,
         vector_ids: Optional[List[str]] = None,
         only_documents_without_embedding: bool = False,
         batch_size: int = 10_000,
@@ -284,6 +304,7 @@ class SQLDocumentStore(BaseDocumentStore):
         ).filter_by(index=index)
 
         if filters:
+            logger.warning("filters won't work on metadata fields containing compound data types")
             parsed_filter = LogicalFilterClause.parse(filters)
             select_ids = parsed_filter.convert_to_sql(MetaDocumentORM)
             documents_query = documents_query.filter(DocumentORM.id.in_(select_ids))
@@ -325,7 +346,9 @@ class SQLDocumentStore(BaseDocumentStore):
             documents_map[row.document_id].meta[row.name] = row.value
         return documents_map
 
-    def get_all_labels(self, index=None, filters: Optional[dict] = None, headers: Optional[Dict[str, str]] = None):
+    def get_all_labels(
+        self, index=None, filters: Optional[FilterType] = None, headers: Optional[Dict[str, str]] = None
+    ):
         """
         Return all labels in the document store
         """
@@ -376,10 +399,7 @@ class SQLDocumentStore(BaseDocumentStore):
         if len(documents) == 0:
             return
         # Make sure we comply to Document class format
-        if isinstance(documents[0], dict):
-            document_objects = [Document.from_dict(d) if isinstance(d, dict) else d for d in documents]
-        else:
-            document_objects = documents
+        document_objects = [Document.from_dict(d) if isinstance(d, dict) else d for d in documents]
 
         document_objects = self._handle_duplicate_documents(
             documents=document_objects, index=index, duplicate_documents=duplicate_documents
@@ -388,31 +408,32 @@ class SQLDocumentStore(BaseDocumentStore):
             docs_orm = []
             for doc in document_objects[i : i + batch_size]:
                 meta_fields = doc.meta or {}
+                if "classification" in meta_fields:
+                    meta_fields = self._flatten_classification_meta_fields(meta_fields)
                 vector_id = meta_fields.pop("vector_id", None)
                 meta_orms = [MetaDocumentORM(name=key, value=value) for key, value in meta_fields.items()]
-                doc_mapping = {
-                    "id": doc.id,
-                    "content": doc.to_dict()["content"],
-                    "content_type": doc.content_type,
-                    "vector_id": vector_id,
-                    "meta": meta_orms,
-                    "index": index,
-                }
+                doc_orm = DocumentORM(
+                    id=doc.id,
+                    content=doc.to_dict()["content"],
+                    content_type=doc.content_type,
+                    vector_id=vector_id,
+                    meta=meta_orms,
+                    index=index,
+                )
                 if duplicate_documents == "overwrite":
-                    doc_orm = DocumentORM(**doc_mapping)
                     # First old meta data cleaning is required
                     self.session.query(MetaDocumentORM).filter_by(document_id=doc.id).delete()
                     self.session.merge(doc_orm)
                 else:
-                    docs_orm.append(doc_mapping)
+                    docs_orm.append(doc_orm)
 
             if docs_orm:
-                self.session.bulk_insert_mappings(DocumentORM, docs_orm)
+                self.session.add_all(docs_orm)
 
             try:
                 self.session.commit()
             except Exception as ex:
-                logger.error(f"Transaction rollback: {ex.__cause__}")
+                logger.error("Transaction rollback: %s", ex.__cause__)
                 # Rollback is important here otherwise self.session will be in inconsistent state and next call will fail
                 self.session.rollback()
                 raise ex
@@ -444,16 +465,30 @@ class SQLDocumentStore(BaseDocumentStore):
             # self.write_documents(documents=[label.document], index=index, duplicate_documents="skip")
 
             # TODO: Handle label meta data
+
+            # Sanitize fields to adhere to SQL constraints
+            answer = label.answer
+            if answer is not None:
+                answer = answer.to_json()
+
+            no_answer = label.no_answer
+            if label.no_answer is None:
+                no_answer = False
+
+            document = label.document
+            if document is not None:
+                document = document.to_json()
+
             label_orm = LabelORM(
                 id=label.id,
-                no_answer=label.no_answer,
+                no_answer=no_answer,
                 # document_id=label.document.id,
-                document=label.document.to_json(),
+                document=document,
                 origin=label.origin,
                 query=label.query,
                 is_correct_answer=label.is_correct_answer,
                 is_correct_document=label.is_correct_document,
-                answer=label.answer.to_json(),
+                answer=answer,
                 pipeline_id=label.pipeline_id,
                 index=index,
             )
@@ -482,7 +517,7 @@ class SQLDocumentStore(BaseDocumentStore):
             try:
                 self.session.commit()
             except Exception as ex:
-                logger.error(f"Transaction rollback: {ex.__cause__}")
+                logger.error("Transaction rollback: %s", ex.__cause__)
                 self.session.rollback()
                 raise ex
 
@@ -494,7 +529,7 @@ class SQLDocumentStore(BaseDocumentStore):
         self.session.query(DocumentORM).filter_by(index=index).update({DocumentORM.vector_id: null()})
         self.session.commit()
 
-    def update_document_meta(self, id: str, meta: Dict[str, str], index: str = None):
+    def update_document_meta(self, id: str, meta: Dict[str, str], index: Optional[str] = None):
         """
         Update the metadata dictionary of a document by specifying its string id
         """
@@ -510,7 +545,7 @@ class SQLDocumentStore(BaseDocumentStore):
 
     def get_document_count(
         self,
-        filters: Optional[Dict[str, Any]] = None,  # TODO: Adapt type once we allow extended filters in SQLDocStore
+        filters: Optional[FilterType] = None,
         index: Optional[str] = None,
         only_documents_without_embedding: bool = False,
         headers: Optional[Dict[str, str]] = None,
@@ -560,17 +595,18 @@ class SQLDocumentStore(BaseDocumentStore):
         return document
 
     def _convert_sql_row_to_label(self, row) -> Label:
-        # doc = self._convert_sql_row_to_document(row.document)
+        answer = row.answer
+        if answer is not None:
+            answer = Answer.from_json(answer)
 
         label = Label(
             query=row.query,
-            answer=Answer.from_json(row.answer),  # type: ignore
+            answer=answer,
             document=Document.from_json(row.document),
             is_correct_answer=row.is_correct_answer,
             is_correct_document=row.is_correct_document,
             origin=row.origin,
             id=row.id,
-            no_answer=row.no_answer,
             pipeline_id=row.pipeline_id,
             created_at=str(row.created_at),
             updated_at=str(row.updated_at),
@@ -581,7 +617,7 @@ class SQLDocumentStore(BaseDocumentStore):
     def query_by_embedding(
         self,
         query_emb: np.ndarray,
-        filters: Optional[dict] = None,
+        filters: Optional[FilterType] = None,
         top_k: int = 10,
         index: Optional[str] = None,
         return_embedding: Optional[bool] = None,
@@ -598,7 +634,7 @@ class SQLDocumentStore(BaseDocumentStore):
     def delete_all_documents(
         self,
         index: Optional[str] = None,
-        filters: Optional[Dict[str, Any]] = None,  # TODO: Adapt type once we allow extended filters in SQLDocStore
+        filters: Optional[FilterType] = None,
         headers: Optional[Dict[str, str]] = None,
     ):
         """
@@ -612,7 +648,7 @@ class SQLDocumentStore(BaseDocumentStore):
             raise NotImplementedError("SQLDocumentStore does not support headers.")
 
         logger.warning(
-            """DEPRECATION WARNINGS: 
+            """DEPRECATION WARNINGS:
                 1. delete_all_documents() method is deprecated, please use delete_documents method
                 For more details, please refer to the issue: https://github.com/deepset-ai/haystack/issues/1045
                 """
@@ -623,7 +659,7 @@ class SQLDocumentStore(BaseDocumentStore):
         self,
         index: Optional[str] = None,
         ids: Optional[List[str]] = None,
-        filters: Optional[Dict[str, Any]] = None,  # TODO: Adapt type once we allow extended filters in SQLDocStore
+        filters: Optional[FilterType] = None,
         headers: Optional[Dict[str, str]] = None,
     ):
         """
@@ -671,7 +707,7 @@ class SQLDocumentStore(BaseDocumentStore):
         self,
         index: Optional[str] = None,
         ids: Optional[List[str]] = None,
-        filters: Optional[Dict[str, Any]] = None,  # TODO: Adapt type once we allow extended filters in SQLDocStore
+        filters: Optional[FilterType] = None,
         headers: Optional[Dict[str, str]] = None,
     ):
         """
@@ -755,3 +791,14 @@ class SQLDocumentStore(BaseDocumentStore):
         for whereclause in self._column_windows(q.session, column, windowsize):
             for row in q.filter(whereclause).order_by(column):
                 yield row
+
+    def _flatten_classification_meta_fields(self, meta_fields: dict) -> dict:
+        """
+        Since SQLDocumentStore does not support dictionaries for metadata values,
+        the DocumentClassifier output is flattened
+        """
+        meta_fields["classification.label"] = meta_fields["classification"]["label"]
+        meta_fields["classification.score"] = meta_fields["classification"]["score"]
+        meta_fields["classification.details"] = str(meta_fields["classification"]["details"])
+        del meta_fields["classification"]
+        return meta_fields

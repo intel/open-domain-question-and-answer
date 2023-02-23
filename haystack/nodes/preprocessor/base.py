@@ -1,6 +1,12 @@
 from typing import List, Optional, Union
 
+try:
+    from typing import Literal
+except ImportError:
+    from typing_extensions import Literal  # type: ignore
+
 from abc import abstractmethod
+
 from haystack.nodes.base import BaseComponent
 from haystack.schema import Document
 
@@ -16,10 +22,11 @@ class BasePreProcessor(BaseComponent):
         clean_header_footer: Optional[bool] = False,
         clean_empty_lines: Optional[bool] = True,
         remove_substrings: List[str] = [],
-        split_by: Optional[str] = "word",
+        split_by: Literal["word", "sentence", "passage", None] = "word",
         split_length: Optional[int] = 1000,
         split_overlap: Optional[int] = None,
         split_respect_sentence_boundary: Optional[bool] = True,
+        id_hash_keys: Optional[List[str]] = None,
     ) -> List[Document]:
         """
         Perform document cleaning and splitting. Takes a single Document or a List of Documents as input and returns a
@@ -42,7 +49,7 @@ class BasePreProcessor(BaseComponent):
     def split(
         self,
         document: Union[dict, Document],
-        split_by: str,
+        split_by: Literal["word", "sentence", "passage", None],
         split_length: int,
         split_overlap: int,
         split_respect_sentence_boundary: bool,
@@ -55,10 +62,11 @@ class BasePreProcessor(BaseComponent):
         clean_whitespace: Optional[bool] = None,
         clean_header_footer: Optional[bool] = None,
         clean_empty_lines: Optional[bool] = None,
-        split_by: Optional[str] = None,
+        split_by: Literal["word", "sentence", "passage", None] = None,
         split_length: Optional[int] = None,
         split_overlap: Optional[int] = None,
         split_respect_sentence_boundary: Optional[bool] = None,
+        id_hash_keys: Optional[List[str]] = None,
     ):
         processed_documents = self.process(
             documents=documents,
@@ -69,6 +77,7 @@ class BasePreProcessor(BaseComponent):
             split_length=split_length,
             split_overlap=split_overlap,
             split_respect_sentence_boundary=split_respect_sentence_boundary,
+            id_hash_keys=id_hash_keys,
         )
         result = {"documents": processed_documents}
         return result, "output_1"
@@ -79,10 +88,11 @@ class BasePreProcessor(BaseComponent):
         clean_whitespace: Optional[bool] = None,
         clean_header_footer: Optional[bool] = None,
         clean_empty_lines: Optional[bool] = None,
-        split_by: Optional[str] = None,
+        split_by: Literal["word", "sentence", "passage", None] = None,
         split_length: Optional[int] = None,
         split_overlap: Optional[int] = None,
         split_respect_sentence_boundary: Optional[bool] = None,
+        id_hash_keys: Optional[List[str]] = None,
     ):
         return self.run(
             documents=documents,
@@ -93,4 +103,5 @@ class BasePreProcessor(BaseComponent):
             split_length=split_length,
             split_overlap=split_overlap,
             split_respect_sentence_boundary=split_respect_sentence_boundary,
+            id_hash_keys=id_hash_keys,
         )

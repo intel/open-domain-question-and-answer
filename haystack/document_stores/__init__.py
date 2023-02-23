@@ -7,22 +7,22 @@ from haystack.document_stores.memory import InMemoryDocumentStore
 from haystack.document_stores.deepsetcloud import DeepsetCloudDocumentStore
 from haystack.document_stores.utils import eval_data_from_json, eval_data_from_jsonl, squad_json_to_jsonl
 
-from haystack.document_stores.elasticsearch import (
-    ElasticsearchDocumentStore,
-    OpenSearchDocumentStore,
-    OpenDistroElasticsearchDocumentStore,
-)
+from haystack.document_stores.elasticsearch import ElasticsearchDocumentStore
 from haystack.document_stores.es_converter import (
     elasticsearch_index_to_document_store,
     open_search_index_to_document_store,
 )
 
+OpenSearchDocumentStore = safe_import("haystack.document_stores.opensearch", "OpenSearchDocumentStore", "opensearch")
+OpenDistroElasticsearchDocumentStore = safe_import(
+    "haystack.document_stores.opensearch", "OpenDistroElasticsearchDocumentStore", "opensearch"
+)
 SQLDocumentStore = safe_import("haystack.document_stores.sql", "SQLDocumentStore", "sql")
 FAISSDocumentStore = safe_import("haystack.document_stores.faiss", "FAISSDocumentStore", "faiss")
 PineconeDocumentStore = safe_import("haystack.document_stores.pinecone", "PineconeDocumentStore", "pinecone")
-if os.getenv("MILVUS1_ENABLED"):
-    MilvusDocumentStore = safe_import("haystack.document_stores.milvus1", "Milvus1DocumentStore", "milvus1")
-else:
-    MilvusDocumentStore = safe_import("haystack.document_stores.milvus2", "Milvus2DocumentStore", "milvus")
+MilvusDocumentStore = safe_import("haystack.document_stores.milvus", "MilvusDocumentStore", "milvus")
 WeaviateDocumentStore = safe_import("haystack.document_stores.weaviate", "WeaviateDocumentStore", "weaviate")
 GraphDBKnowledgeGraph = safe_import("haystack.document_stores.graphdb", "GraphDBKnowledgeGraph", "graphdb")
+InMemoryKnowledgeGraph = safe_import(
+    "haystack.document_stores.memory_knowledgegraph", "InMemoryKnowledgeGraph", "inmemorygraph"
+)

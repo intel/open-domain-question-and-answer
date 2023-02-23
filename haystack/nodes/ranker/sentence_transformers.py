@@ -1,9 +1,10 @@
-from typing import List, Optional, Union, Tuple, Iterator
+from typing import List, Optional, Union, Tuple, Iterator, Any
 import logging
 from pathlib import Path
 
 import torch
 from torch.nn import DataParallel
+from tqdm.auto import tqdm
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
 from haystack.errors import HaystackError
@@ -24,16 +25,18 @@ class SentenceTransformersRanker(BaseRanker):
         - use two output logits (no_answer, has_answer) e.g. deepset/gbert-base-germandpr-reranking
     https://www.sbert.net/docs/pretrained-models/ce-msmarco.html#usage-with-transformers
 
-    |  With a SentenceTransformersRanker, you can:
+    With a SentenceTransformersRanker, you can:
      - directly get predictions via predict()
 
     Usage example:
-    ...
+
+    ```python
     retriever = BM25Retriever(document_store=document_store)
     ranker = SentenceTransformersRanker(model_name_or_path="cross-encoder/ms-marco-MiniLM-L-12-v2")
     p = Pipeline()
-    p.add_node(component=retriever, name="ESRetriever", inputs=["Query"])
+    p.add_node(component=retriever, name="Retriever", inputs=["Query"])
     p.add_node(component=ranker, name="Ranker", inputs=["ESRetriever"])
+    ```
     """
 
     def __init__(
@@ -43,7 +46,10 @@ class SentenceTransformersRanker(BaseRanker):
         top_k: int = 10,
         use_gpu: bool = True,
         devices: Optional[List[Union[str, torch.device]]] = None,
-        batch_size: Optional[int] = None,
+        batch_size: int = 16,
+        scale_score: bool = True,
+        progress_bar: bool = True,
+        use_auth_token: Optional[Union[str, bool]] = None,
     ):
         """
         :param model_name_or_path: Directory of a saved model or the name of a public model e.g.
@@ -52,29 +58,45 @@ class SentenceTransformersRanker(BaseRanker):
         :param model_version: The version of model to use from the HuggingFace model hub. Can be tag name, branch name, or commit hash.
         :param top_k: The maximum number of documents to return
         :param use_gpu: Whether to use all available GPUs or the CPU. Falls back on CPU if no GPU is available.
-        :param devices: List of GPU (or CPU) devices, to limit inference to certain GPUs and not use all available ones
-                        The strings will be converted into pytorch devices, so use the string notation described here:
-                        https://pytorch.org/docs/stable/tensor_attributes.html?highlight=torch%20device#torch.torch.device
-                        (e.g. ["cuda:0"]).
         :param batch_size: Number of documents to process at a time.
+        :param scale_score: The raw predictions will be transformed using a Sigmoid activation function in case the model
+                            only predicts a single label. For multi-label predictions, no scaling is applied. Set this
+                            to False if you do not want any scaling of the raw predictions.
+        :param progress_bar: Whether to show a progress bar while processing the documents.
+        :param use_auth_token: The API token used to download private models from Huggingface.
+                               If this parameter is set to `True`, then the token generated when running
+                               `transformers-cli login` (stored in ~/.huggingface) will be used.
+                               Additional information can be found here
+                               https://huggingface.co/transformers/main_classes/model.html#transformers.PreTrainedModel.from_pretrained
+        :param devices: List of torch devices (e.g. cuda, cpu, mps) to limit inference to specific devices.
+                        A list containing torch device objects and/or strings is supported (For example
+                        [torch.device('cuda:0'), "mps", "cuda:1"]). When specifying `use_gpu=False` the devices
+                        parameter is not used and a single cpu device is used for inference.
         """
         super().__init__()
 
         self.top_k = top_k
 
-        if devices is not None:
-            self.devices = [torch.device(device) for device in devices]
-        else:
-            self.devices, _ = initialize_device_settings(use_cuda=use_gpu, multi_gpu=True)
+        self.devices, _ = initialize_device_settings(devices=devices, use_cuda=use_gpu, multi_gpu=True)
 
+        self.progress_bar = progress_bar
         self.transformer_model = AutoModelForSequenceClassification.from_pretrained(
-            pretrained_model_name_or_path=model_name_or_path, revision=model_version
+            pretrained_model_name_or_path=model_name_or_path, revision=model_version, use_auth_token=use_auth_token
         )
         self.transformer_model.to(str(self.devices[0]))
         self.transformer_tokenizer = AutoTokenizer.from_pretrained(
-            pretrained_model_name_or_path=model_name_or_path, revision=model_version
+            pretrained_model_name_or_path=model_name_or_path, revision=model_version, use_auth_token=use_auth_token
         )
         self.transformer_model.eval()
+
+        # we use sigmoid activation function to scale the score in case there is only a single label
+        # we do not apply any scaling when scale_score is set to False
+        num_labels = self.transformer_model.num_labels
+        self.activation_function: torch.nn.Module
+        if num_labels == 1 and scale_score:
+            self.activation_function = torch.nn.Sigmoid()
+        else:
+            self.activation_function = torch.nn.Identity()
 
         if len(self.devices) > 1:
             self.model = DataParallel(self.transformer_model, device_ids=self.devices)
@@ -107,7 +129,7 @@ class SentenceTransformersRanker(BaseRanker):
         # 1. the logit as similarity score/answerable classification
         # 2. the logits as answerable classification  (no_answer / has_answer)
         # https://www.sbert.net/docs/pretrained-models/ce-msmarco.html#usage-with-transformers
-        with torch.no_grad():
+        with torch.inference_mode():
             similarity_scores = self.transformer_model(**features).logits
 
         logits_dim = similarity_scores.shape[1]  # [batch_size, logits_dim]
@@ -119,9 +141,31 @@ class SentenceTransformersRanker(BaseRanker):
             reverse=True,
         )
 
-        # rank documents according to scores
-        sorted_documents = [doc for _, doc in sorted_scores_and_documents]
-        return sorted_documents[:top_k]
+        # add normalized scores to documents
+        sorted_documents = self._add_scores_to_documents(sorted_scores_and_documents[:top_k], logits_dim)
+
+        return sorted_documents
+
+    def _add_scores_to_documents(
+        self, sorted_scores_and_documents: List[Tuple[Any, Document]], logits_dim: int
+    ) -> List[Document]:
+        """
+        Normalize and add scores to retrieved result documents.
+
+        :param sorted_scores_and_documents: List of score, Document Tuples.
+        :param logits_dim: Dimensionality of the returned scores.
+        """
+        sorted_documents = []
+        for raw_score, doc in sorted_scores_and_documents:
+            if logits_dim >= 2:
+                score = self.activation_function(raw_score)[-1]
+            else:
+                score = self.activation_function(raw_score)[0]
+
+            doc.score = score.detach().cpu().numpy().tolist()
+            sorted_documents.append(doc)
+
+        return sorted_documents
 
     def predict_batch(
         self,
@@ -165,15 +209,18 @@ class SentenceTransformersRanker(BaseRanker):
         )
 
         batches = self._get_batches(all_queries=all_queries, all_docs=all_docs, batch_size=batch_size)
+        pb = tqdm(total=len(all_docs), disable=not self.progress_bar, desc="Ranking")
         preds = []
         for cur_queries, cur_docs in batches:
             features = self.transformer_tokenizer(
                 cur_queries, [doc.content for doc in cur_docs], padding=True, truncation=True, return_tensors="pt"
             ).to(self.devices[0])
 
-            with torch.no_grad():
+            with torch.inference_mode():
                 similarity_scores = self.transformer_model(**features).logits
                 preds.extend(similarity_scores)
+            pb.update(len(cur_docs))
+        pb.close()
 
         logits_dim = similarity_scores.shape[1]  # [batch_size, logits_dim]
         if single_list_of_docs:
@@ -185,9 +232,11 @@ class SentenceTransformersRanker(BaseRanker):
                 reverse=True,
             )
 
-            # rank documents according to scores
-            sorted_documents = [doc for _, doc in sorted_scores_and_documents if isinstance(doc, Document)]
-            return sorted_documents[:top_k]
+            # is this step needed?
+            sorted_documents = [(score, doc) for score, doc in sorted_scores_and_documents if isinstance(doc, Document)]
+            sorted_documents_with_scores = self._add_scores_to_documents(sorted_documents[:top_k], logits_dim)
+
+            return sorted_documents_with_scores
         else:
             # Group predictions together
             grouped_predictions = []
@@ -209,8 +258,12 @@ class SentenceTransformersRanker(BaseRanker):
                 )
 
                 # rank documents according to scores
-                sorted_documents = [doc for _, doc in sorted_scores_and_documents if isinstance(doc, Document)][:top_k]
-                result.append(sorted_documents)
+                sorted_documents = [
+                    (score, doc) for score, doc in sorted_scores_and_documents if isinstance(doc, Document)
+                ]
+                sorted_documents_with_scores = self._add_scores_to_documents(sorted_documents[:top_k], logits_dim)
+
+                result.append(sorted_documents_with_scores)
 
             return result
 

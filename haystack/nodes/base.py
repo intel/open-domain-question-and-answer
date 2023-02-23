@@ -19,30 +19,33 @@ logger = logging.getLogger(__name__)
 def exportable_to_yaml(init_func):
     """
     Decorator that saves the init parameters of a node that later can
-    be used with exporting YAML configuration of a Pipeline.
+    be used with exporting YAML configuration of a Pipeline. We ensure
+    that only params passed to the __init__ function of the implementation
+    are saved, ignoring calls to the ancestors.
     """
 
     @wraps(init_func)
     def wrapper_exportable_to_yaml(self, *args, **kwargs):
 
-        # Call the actuall __init__ function with all the arguments
-        init_func(self, *args, **kwargs)
-
         # Create the configuration dictionary if it doesn't exist yet
         if not self._component_config:
             self._component_config = {"params": {}, "type": type(self).__name__}
 
-        # Make sure it runs only on the __init__of the implementations, not in superclasses
-        # NOTE: we use '.endswith' because inner classes's __qualname__ will include the parent class'
-        #   name, like: ParentClass.InnerClass.__init__.
-        #   Inner classes are heavily used in tests.
-        if init_func.__qualname__.endswith(f"{self.__class__.__name__}.{init_func.__name__}"):
-
+        # NOTE: inner classes constructor's __qualname__ will include the outer class' name,
+        # e.g. "OuterClass.InnerClass.__init__". We then take only the last two parts of the
+        # fully qualified name, in the previous example that would be "InnerClass.__init__"
+        name_components = init_func.__qualname__.split(".")
+        # Reconstruct the inner class' __qualname__ and compare with the __qualname__ of the implementation class.
+        # If the number of components is wrong, let the IndexError bubble up, there's nothing we can do anyways.
+        if f"{name_components[-2]}.{name_components[-1]}" == f"{self.__class__.__name__}.{init_func.__name__}":
             # Store all the input parameters in self._component_config
             args_as_kwargs = args_to_kwargs(args, init_func)
             params = {**args_as_kwargs, **kwargs}
             for k, v in params.items():
                 self._component_config["params"][k] = v
+
+        # Call the actuall __init__ function with all the arguments
+        init_func(self, *args, **kwargs)
 
     return wrapper_exportable_to_yaml
 
@@ -58,13 +61,24 @@ class BaseComponent(ABC):
 
     def __init__(self):
         # a small subset of the component's parameters is sent in an event after applying filters defined in haystack.telemetry.NonPrivateParameters
-        send_custom_event(event=f"{type(self).__name__} initialized", payload=self._component_config.get("params", {}))
+        component_params = self._component_config.get("params", {})
+        send_custom_event(event=f"{type(self).__name__} initialized", payload=component_params)
+        self.outgoing_edges = self._calculate_outgoing_edges(component_params=component_params)
 
     # __init_subclass__ is invoked when a subclass of BaseComponent is _imported_
     # (not instantiated). It works approximately as a metaclass.
     def __init_subclass__(cls, **kwargs):
 
         super().__init_subclass__(**kwargs)
+
+        # Each component must specify the number of outgoing edges (= different outputs).
+        # During pipeline validation this number is compared to the requested number of output edges.
+        if not hasattr(cls, "outgoing_edges"):
+            raise ValueError(
+                "BaseComponent subclasses must define the outgoing_edges class attribute. "
+                "If this number depends on the component's parameters, make sure to override the _calculate_outgoing_edges() method. "
+                "See https://haystack.deepset.ai/pipeline_nodes/custom-nodes for more information."
+            )
 
         # Automatically registers all the init parameters in
         # an instance attribute called `_component_config`,
@@ -95,7 +109,7 @@ class BaseComponent(ABC):
         return self._component_config["type"]
 
     def get_params(self, return_defaults: bool = False) -> Dict[str, Any]:
-        component_signature = self._get_signature()
+        component_signature = dict(inspect.signature(self.__class__).parameters)
         params: Dict[str, Any] = {}
         for key, value in self._component_config["params"].items():
             if value != component_signature[key].default or return_defaults:
@@ -114,12 +128,30 @@ class BaseComponent(ABC):
         return subclass
 
     @classmethod
+    def _calculate_outgoing_edges(cls, component_params: Dict[str, Any]) -> int:
+        """
+        Returns the number of outgoing edges for an instance of the component class given its component params.
+
+        In some cases (e.g. RouteDocuments) the number of outgoing edges is not static but rather depends on its component params.
+        Setting the number of outgoing edges inside the constructor would not be sufficient, since it is already required for validating the pipeline when there is no instance yet.
+        Hence, this method is responsible for calculating the number of outgoing edges
+        - during pipeline validation
+        - to set the effective instance value of `outgoing_edges`.
+
+        Override this method if the number of outgoing edges depends on the component params.
+        If not overridden, returns the number of outgoing edges as defined in the component class.
+
+        :param component_params: parameters to pass to the __init__() of the component.
+        """
+        return cls.outgoing_edges
+
+    @classmethod
     def _create_instance(cls, component_type: str, component_params: Dict[str, Any], name: Optional[str] = None):
         """
         Returns an instance of the given subclass of BaseComponent.
 
         :param component_type: name of the component class to load.
-        :param component_params: parameters to pass to the __init__() for the component.
+        :param component_params: parameters to pass to the __init__() of the component.
         :param name: name of the component instance
         """
         subclass = cls.get_subclass(component_type)
@@ -233,23 +265,13 @@ class BaseComponent(ABC):
         if all_debug:
             output["_debug"] = all_debug
 
-        # add "extra" args that were not used by the node
+        # add "extra" args that were not used by the node, but not the 'inputs' value
         for k, v in arguments.items():
-            if k not in output.keys():
+            if k not in output.keys() and k != "inputs":
                 output[k] = v
 
         output["params"] = params
         return output, stream
-
-    @classmethod
-    def _get_signature(cls) -> Dict[str, inspect.Parameter]:
-        component_classes = inspect.getmro(cls)
-        component_signature: Dict[str, inspect.Parameter] = {
-            param_key: parameter
-            for class_ in component_classes
-            for param_key, parameter in inspect.signature(class_).parameters.items()
-        }
-        return component_signature
 
 
 class RootNode(BaseComponent):
