@@ -67,6 +67,8 @@ def query(query, filters={}, top_k_reader=5, top_k_retriever=5, pipeline='extrac
     results = []
     answers = response["answers"]
     for answer in answers:
+        answer_score = answer["score"]
+        answer_score = round(answer_score * 100, 2) if answer_score < 1.0 else round(answer_score, 2)
         if answer.get("answer", None):
             results.append(
                 {
@@ -74,7 +76,7 @@ def query(query, filters={}, top_k_reader=5, top_k_retriever=5, pipeline='extrac
                     "query": answer.get("query", None),
                     "answer": answer.get("answer", None),
                     "source": answer["meta"].get("name", "default"),
-                    "relevance": round(answer["score"] * 100, 2),
+                    "relevance": answer_score,
                     "document": [doc for doc in response["documents"] if doc["id"] == answer["document_id"]][0],
                     "offset_start_in_doc": answer["offsets_in_document"][0]["start"],
                     "_raw": answer,
@@ -87,7 +89,7 @@ def query(query, filters={}, top_k_reader=5, top_k_retriever=5, pipeline='extrac
                     "query": None,
                     "answer": None,
                     "document": None,
-                    "relevance": round(answer["score"] * 100, 2),
+                    "relevance": answer_score,
                     "_raw": answer,
                 }
             )

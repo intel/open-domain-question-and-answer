@@ -5,10 +5,7 @@ from tqdm.auto import tqdm
 from haystack.errors import HaystackError
 from haystack.schema import Document, Answer, Span
 from haystack.nodes.base import BaseComponent
-from haystack import config
-import time
-import logging
-logger = logging.getLogger(__name__)
+
 
 class Docs2Answers(BaseComponent):
     """
@@ -27,15 +24,13 @@ class Docs2Answers(BaseComponent):
 
     def run(self, query: str, documents: List[Document]):  # type: ignore
         # conversion from Document -> Answer
-        start = time.time()
         answers: List[Answer] = []
         for doc in documents:
-            cur_answer = self._convert_doc_to_answer(doc, query)
+            cur_answer = self._convert_doc_to_answer(doc)
             answers.append(cur_answer)
 
         output = {"query": query, "answers": answers}
-        interval = time.time() - start
-        logger.info(f"{config.BENCHMARK_LOG_TAG} {{Docs2Answer_time:{interval}}}")
+
         return output, "output_1"
 
     def run_batch(self, queries: List[str], documents: Union[List[Document], List[List[Document]]]):  # type: ignore
@@ -63,16 +58,15 @@ class Docs2Answers(BaseComponent):
         return output, "output_1"
 
     @staticmethod
-    def _convert_doc_to_answer(doc: Document, query: str) -> Answer:
+    def _convert_doc_to_answer(doc: Document) -> Answer:
         # For FAQ style QA use cases
         if "answer" in doc.meta:
             doc.meta["query"] = doc.content  # question from the existing FAQ
             answer = Answer(
-                query=query,
                 answer=doc.meta["answer"],
                 type="other",
                 score=doc.score,
-                context=doc.content + "-" + doc.meta["answer"],
+                context=doc.meta["answer"],
                 offsets_in_context=[Span(start=0, end=len(doc.meta["answer"]))],
                 document_id=doc.id,
                 meta=doc.meta,
@@ -80,7 +74,7 @@ class Docs2Answers(BaseComponent):
         else:
             # Regular docs
             answer = Answer(
-                answer="", query="", type="other", score=doc.score, context=doc.content, document_id=doc.id, meta=doc.meta
+                answer="", type="other", score=doc.score, context=doc.content, document_id=doc.id, meta=doc.meta
             )
 
         return answer

@@ -3,31 +3,34 @@
 OPTIND=1         # Reset in case getopts has been used previously in the shell.
 
 cores_per_worker=0
-head_address='127.0.0.1'
+head_address='0.0.0.0'
 usage() {
   echo "Usage: $0 -r [run_type] [optional parameters]"
   echo "  options:"
   echo "    -h Display usage"
   echo "    -r run_type"
   echo "         Run type = [startup_all, startup_workers, stop_ray, clean_ray, stop_es, clean_ray, clean_all]"
-  echo "    -n num_sockets"
-  echo "         Number of sockets to use for the specified run type"
   echo "         The recommendation is a single instance using no more than a single socket."
   echo "    -e es_cores"
   echo "         Core number of ElasticSearch  = [1..n = Cores]"
-  echo "    -b process_batch_size"
-  echo "         process batch size"
   echo "    -u head_address"
   echo "         Ray head address (127.0.0.1)"
   echo "    -s cores_per_worker"
   echo "         Cores per Ray worker, for multi-instance indexing"
   echo "    -c cores_per_head"
   echo "         Cores per Ray head, for multi-instance indexing"
-
   echo "    -m mkldnn_verbose"
   echo "         MKLDNN_VERBOSE value"
-  echo "    -p filename_prefix"
-  echo "         Override default log filename prefix"
+  echo "    -d database"
+  echo "         startup the database=[postgresql, elasticsearch, all]"
+  echo "    -f dataset"
+  echo "         folder path of mounting to docker container"
+  echo "    -w workspace"
+  echo "         folder path of workspace which includes you source code"
+  echo "    -b es_data"
+  echo "         data folder path of mounting to elasticsearch database container"
+  echo "    -p postgres_data"
+  echo "         data folder path of mounting to postgresql database container"
   echo ""
   echo "  examples:"
   echo "    Startup the ray cluster "
@@ -35,7 +38,7 @@ usage() {
   echo ""
 }
 
-while getopts "h?r:s:b:e:t:y:s:u:c:m:p:" opt; do
+while getopts "h?r:s:e:u:c:m:d:f:w:b:p:" opt; do
     case "$opt" in
     h|\?)
         usage
@@ -43,11 +46,7 @@ while getopts "h?r:s:b:e:t:y:s:u:c:m:p:" opt; do
         ;;
     r)  run_type=$OPTARG
         ;;
-    n)  num_sockets=$OPTARG
-        ;;
     e)  es_cores=$OPTARG
-        ;;
-    b)  process_batch_size=$OPTARG
         ;;
     u)  head_address=$OPTARG
         ;;
@@ -56,6 +55,16 @@ while getopts "h?r:s:b:e:t:y:s:u:c:m:p:" opt; do
     c)  cores_per_head=$OPTARG
         ;;
     m)  verbose=$OPTARG
+        ;;
+    d)  database=$OPTARG
+        ;;
+    f)  dataset=$OPTARG
+        ;;
+    w)  workspace=$OPTARG
+        ;;
+    b)  es_data=$OPTARG
+        ;;
+    p)  postgres_data=$OPTARG
         ;;
     esac
 done
@@ -66,28 +75,14 @@ shift $((OPTIND-1))
 
 
 ## Override default values for values specified by the user
-if [ ! -z "$use_bf16" ]; then
-    use_bfloat16=$use_bf16
-fi
-
 
 if [ ! -z "$es_cores" ]; then
   es_cores=$es_cores
 fi
 
-if [ ! -z "$process_batch_size" ]; then
-  process_batch_size=$process_batch_size
-fi
-
-if [ ! -z "$num_sockets" ]; then
-  SOCKETS=$num_sockets
-fi
-
 if [ ! -z "$head_address" ]; then
   head_address=$head_address
 fi
-
-
 
 if [ ! -z "$cores_per_worker" ]; then
   cores_per_worker=$cores_per_worker
@@ -101,10 +96,25 @@ if [ ! -z "$verbose" ]; then
     export MKLDNN_VERBOSE=$verbose
 fi
 
-if [ ! -z $filename_prefix ]; then
-    FILENAME=$filename_prefix
+if [ ! -z $database ]; then
+    database=$database
 fi
 
+if [ ! -z $dataset ]; then
+    dataset=$dataset
+fi
+
+if [ ! -z $workspace ]; then
+    workspace=$workspace
+fi
+
+if [ ! -z $es_data ]; then
+    es_data=$es_data
+fi
+
+if [ ! -z $postgres_data ]; then
+    postgres_data=$postgres_data
+fi
 
 CORES=`lscpu | grep 'Core(s)' | awk '{print $4}'`
 SOCKETS=`cat /proc/cpuinfo | grep 'physical id' | sort | uniq | wc -l`
@@ -136,12 +146,35 @@ if [[ $run_type = "startup_all" ]]; then
     echo "head_address=$head_address"
     head_name='head''-'${post_fix}
     es_image='elasticsearch:7.9.2'
-    es_name='elasticsearch-'${post_fix}
-    docker run -d --name $es_name  --network host --shm-size=8gb -e "discovery.type=single-node" -e ES_JAVA_OPTS="-Xmx8g -Xms8g" ${es_image}
+    if [[ $database = "elasticsearch" ]] || [[ $database = "all" ]]; then
+        es_name='elasticsearch-'${post_fix}
+        if [ ! -z $es_data ]; then
+            docker run -d --name $es_name  --network host --cpuset-cpus=${es_cores_range} --shm-size=8gb -e "discovery.type=single-node" \
+                -v ${es_data}:/usr/share/elasticsearch/data \
+                -e ES_JAVA_OPTS="-Xmx8g -Xms8g" ${es_image}
+        else
+            docker run -d --name $es_name  --network host --cpuset-cpus=${es_cores_range} --shm-size=8gb -e "discovery.type=single-node" \
+                -e ES_JAVA_OPTS="-Xmx8g -Xms8g" ${es_image}
+        fi
+    fi
+
+    if [[ $database = "postgresql" ]] || [[ $database = "all" ]]; then
+        postgres_name='postgres-'${post_fix}
+        if [ ! -z $postgres_data ]; then
+            docker run --network host -d --name $postgres_name -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres \
+                -v ${postgres_data}:/var/lib/postgresql/data --cpuset-cpus=${es_cores_range} postgres:14.1-alpine
+        else
+            docker run --network host -d --name $postgres_name -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres \
+                --cpuset-cpus=${es_cores_range} postgres:14.1-alpine
+        fi
+        sleep 5
+        docker exec -d $postgres_name psql -U postgres -c "CREATE DATABASE haystack;"
+    fi
+
     sleep 10
-    docker run -itd -p 8265:8265 --cap-add=NET_ADMIN --network host -v $PWD:/home/user/indexing --cpuset-cpus=${ray_head_cores_range} \
-              --env-file ./env.ray \
-              --shm-size=64gb --name $head_name haystack-ray /bin/bash  &
+    docker run -itd -p 8265:8265 --cap-add=NET_ADMIN --network host -v ${workspace}:/home/user/indexing -v ${dataset}:/home/user/dataset \
+            --cpuset-cpus=${ray_head_cores_range} \
+            --shm-size=64gb --name $head_name haystack-ray /bin/bash  &
     sleep 5
     #docker exec -d $head_name /bin/bash -c "ip link del dev eth1"
     docker exec -d $head_name /bin/bash -c "ray start --node-ip-address=${head_address} --head --dashboard-host='0.0.0.0' --dashboard-port=8265"
@@ -153,9 +186,9 @@ if [[ $run_type = "startup_all" ]]; then
         ray_worker_cores_range=${start_core_idx}'-'`expr $start_core_idx + ${cores_per_worker} - 1`
         echo "ray_worker_cores_range = ${ray_worker_cores_range}"
         worker_name='ray-'$i'-'${post_fix}
-        docker run -itd --cpuset-cpus=${ray_worker_cores_range} --cap-add=NET_ADMIN --network host -v $PWD:/home/user/indexing --shm-size=2gb \
-                  --env-file ./env.ray \
-                  --name $worker_name  haystack-ray  /bin/bash &
+        docker run -itd --cpuset-cpus=${ray_worker_cores_range} --cap-add=NET_ADMIN --network host -v ${workspace}:/home/user/indexing -v ${dataset}:/home/user/dataset \
+                --shm-size=2gb \
+                --name $worker_name  haystack-ray  /bin/bash &
         sleep 5
         #docker exec -d $worker_name /bin/bash -c "ip link del dev eth1"
         docker exec -d $worker_name /bin/bash -c "ray start --address=$head_address"
@@ -174,9 +207,9 @@ elif [[ $run_type = "startup_workers" ]]; then
         ray_worker_cores_range=${start_core_idx}'-'`expr $start_core_idx + ${cores_per_worker} - 1`
         echo "ray_worker_cores_range = ${ray_worker_cores_range}"
         worker_name='ray-'$i'-'${post_fix}
-        docker run -itd --cpuset-cpus=${ray_worker_cores_range} --cap-add=NET_ADMIN --network host -v $PWD:/home/user/indexing --shm-size=2gb \
-                  --env-file ./env.ray \
-                  --name $worker_name  haystack-ray  /bin/bash &
+        docker run -itd --cpuset-cpus=${ray_worker_cores_range} --cap-add=NET_ADMIN --network host  -v ${dataset}:/home/user/dataset\
+                --shm-size=2gb \
+                --name $worker_name  haystack-ray  /bin/bash &
         sleep 5
         #docker exec -d $worker_name /bin/bash -c "ip link del dev eth1"
         docker exec -d $worker_name /bin/bash -c "ray start --address=$head_address"
@@ -201,6 +234,6 @@ elif [[ $run_type = "clean_es" ]]; then
     
 elif [[ $run_type = "clean_all" ]]; then
     echo "stop and clear ray and elasticsearch container"
-    docker stop $(docker ps -a |grep -E 'head|ray|elasticsearch'|awk '{print $1 }')
-    docker rm $(docker ps -a |grep -E 'head|ray|elasticsearch'|awk '{print $1 }')
+    docker stop $(docker ps -a |grep -E 'head|ray|elasticsearch|postsql'|awk '{print $1 }')
+    docker rm $(docker ps -a |grep -E 'head|ray|elasticsearch|postsql'|awk '{print $1 }')
 fi

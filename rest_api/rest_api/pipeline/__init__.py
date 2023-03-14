@@ -9,8 +9,9 @@ from haystack.document_stores import FAISSDocumentStore, InMemoryDocumentStore
 from haystack.errors import PipelineConfigError
 
 from rest_api.controller.utils import RequestLimiter
-from haystack.nodes.retriever.dense import EmbeddingRetriever, DensePassageRetriever
+from haystack.nodes.retriever.dense import EmbeddingRetriever, DensePassageRetriever, ColBERTRetriever
 from haystack.document_stores.elasticsearch import ElasticsearchDocumentStore
+from haystack.document_stores.plaid import PLAIDDocumentStore
 from haystack.pipelines import FAQPipeline
 from haystack.nodes.ranker.colbert_modeling import ColBERTRanker
 from haystack.nodes.other import Docs2Answers
@@ -57,43 +58,6 @@ def setup_pipelines() -> Dict[str, Any]:
 
         finally:
             pipelines["indexing_pipeline"] = indexing_pipeline
-     
-    elif config.QUERY_PIPELINE_NAME == 'esds_emr_faq':
-        logger.info('es+emb FAQPipeline is selected.')
-        document_store = ElasticsearchDocumentStore(host=config.DOCUMENTSTORE_PARAMS_HOST,
-                                                    port=config.DOCUMENTSTORE_PARAMS_PORT,
-                                                    embedding_field="question_emb",
-                                                    embedding_dim=768,
-                                                    excluded_meta_data=["question_emb"])
-        retriever = EmbeddingRetriever(document_store=document_store, embedding_model="deepset/sentence_bert")
-        query_pipeline = FAQPipeline(retriever=retriever).pipeline
-        pipelines["query_pipeline"] = query_pipeline
-        pipelines["document_store"] = document_store
-    elif config.QUERY_PIPELINE_NAME == 'faiss_dpr_faq' :
-        logger.info('faiss+dpr FAQPipeline is selected.')
-        """ below is only for creating new faiss docstore
-        document_store = FAISSDocumentStore(sql_url='sqlite:///faiss-so.db',
-                                            faiss_index_factory_str="HNSW",
-                                            return_embedding=True,
-                                            index=self.faiss_ds_idx)
-        """
-        #document_store = FAISSDocumentStore(sql_url='sqlite:////home/user/data/faiss-so.db',
-        #                                    faiss_index_factory_str="HNSW",
-        #                                    return_embedding=True,
-        #                                    index='faiss')
-        document_store = FAISSDocumentStore.load(config.FAISS_DB_PATH)
-
-        retriever = DensePassageRetriever(document_store=document_store,
-                                          query_embedding_model="facebook/dpr-question_encoder-single-nq-base",
-                                          passage_embedding_model="facebook/dpr-ctx_encoder-single-nq-base",
-                                          max_seq_len_query=64,
-                                          max_seq_len_passage=256,
-                                          batch_size=16,
-                                          embed_title=True,
-                                          use_fast_tokenizers=True)
-        query_pipeline = FAQPipeline(retriever=retriever).pipeline
-        pipelines["query_pipeline"] = query_pipeline
-        pipelines["document_store"] = document_store
 
     elif config.QUERY_PIPELINE_NAME == 'esds_bm25r_colbert' :
         logger.info('colbert FAQPipeline is selected.')

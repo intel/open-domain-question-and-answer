@@ -1,6 +1,6 @@
 from abc import abstractmethod
 from typing import List, Dict, Union, Optional, Any
-import time
+
 import logging
 from pathlib import Path
 from copy import deepcopy
@@ -11,27 +11,25 @@ from tqdm.auto import tqdm
 
 import torch
 from torch.nn import DataParallel
+from torch.utils.data import DataLoader
 from torch.utils.data.sampler import SequentialSampler
 import pandas as pd
 from huggingface_hub import hf_hub_download
 from transformers import (
     AutoConfig,
+    AutoTokenizer,
+    AutoModel,
     DPRContextEncoderTokenizerFast,
     DPRQuestionEncoderTokenizerFast,
     DPRContextEncoderTokenizer,
     DPRQuestionEncoderTokenizer,
 )
-
-# colbert related import
-import os
-from colbert.evaluation.loaders import load_colbert, load_qrels, load_queries
-from colbert.indexing.faiss import get_faiss_index_name
-from colbert.modeling.inference import ModelInference
-from colbert.ranking.rankers import Ranker
+from datasets import Dataset
 
 from haystack.errors import HaystackError
 from haystack.schema import Document, FilterType
 from haystack.document_stores import BaseDocumentStore
+from haystack.document_stores.plaid import PLAIDDocumentStore
 from haystack.nodes.retriever.base import BaseRetriever
 from haystack.nodes.retriever._embedding_encoder import _EMBEDDING_ENCODERS
 from haystack.utils.early_stopping import EarlyStopping
@@ -45,7 +43,6 @@ from haystack.modeling.data_handler.dataloader import NamedDataLoader
 from haystack.modeling.model.optimization import initialize_optimizer
 from haystack.modeling.training.base import Trainer
 from haystack.modeling.utils import initialize_device_settings
-from haystack import config
 
 
 logger = logging.getLogger(__name__)
@@ -110,6 +107,7 @@ class DensePassageRetriever(DenseRetriever):
         progress_bar: bool = True,
         devices: Optional[List[Union[str, torch.device]]] = None,
         use_auth_token: Optional[Union[str, bool]] = None,
+        xlm_roberta: Optional[bool] = False,
         scale_score: bool = True,
     ):
         """
@@ -181,6 +179,7 @@ class DensePassageRetriever(DenseRetriever):
         self.batch_size = batch_size
         self.progress_bar = progress_bar
         self.top_k = top_k
+        self.use_xml_model = xlm_roberta
         self.scale_score = scale_score
         self.use_auth_token = use_auth_token
 
@@ -192,30 +191,54 @@ class DensePassageRetriever(DenseRetriever):
             )
 
         # Init & Load Encoders
-        self.query_tokenizer = DPRQuestionEncoderTokenizerFast.from_pretrained(
-            pretrained_model_name_or_path=query_embedding_model,
-            revision=model_version,
-            do_lower_case=True,
-            use_fast=use_fast_tokenizers,
-            use_auth_token=use_auth_token,
-        )
-        self.query_encoder = DPREncoder(
-            pretrained_model_name_or_path=query_embedding_model,
-            model_type="DPRQuestionEncoder",
-            use_auth_token=use_auth_token,
-        )
-        self.passage_tokenizer = DPRContextEncoderTokenizerFast.from_pretrained(
-            pretrained_model_name_or_path=passage_embedding_model,
-            revision=model_version,
-            do_lower_case=True,
-            use_fast=use_fast_tokenizers,
-            use_auth_token=use_auth_token,
-        )
-        self.passage_encoder = DPREncoder(
-            pretrained_model_name_or_path=passage_embedding_model,
-            model_type="DPRContextEncoder",
-            use_auth_token=use_auth_token,
-        )
+        if xlm_roberta:
+            self.max_seq_len_passage = max_seq_len_passage
+            self.max_seq_len_query = max_seq_len_query
+            self.query_tokenizer = AutoTokenizer.from_pretrained(
+                pretrained_model_name_or_path=query_embedding_model,
+                #revision=model_version,
+                #do_lower_case=True,
+                #use_fast=use_fast_tokenizers,
+                #use_auth_token=use_auth_token,
+            )
+            self.query_encoder = AutoModel.from_pretrained(
+                pretrained_model_name_or_path=query_embedding_model
+            )
+            self.passage_tokenizer = AutoTokenizer.from_pretrained(
+                pretrained_model_name_or_path=passage_embedding_model,
+                #revision=model_version,
+                #do_lower_case=True,
+                #use_fast=use_fast_tokenizers,
+                #use_auth_token=use_auth_token,
+            )
+            self.passage_encoder = AutoModel.from_pretrained(
+                pretrained_model_name_or_path=passage_embedding_model
+            )
+        else:
+            self.query_tokenizer = DPRQuestionEncoderTokenizerFast.from_pretrained(
+                pretrained_model_name_or_path=query_embedding_model,
+                revision=model_version,
+                do_lower_case=True,
+                use_fast=use_fast_tokenizers,
+                use_auth_token=use_auth_token,
+            )
+            self.query_encoder = DPREncoder(
+                pretrained_model_name_or_path=query_embedding_model,
+                model_type="DPRQuestionEncoder",
+                use_auth_token=use_auth_token,
+            )
+            self.passage_tokenizer = DPRContextEncoderTokenizerFast.from_pretrained(
+                pretrained_model_name_or_path=passage_embedding_model,
+                revision=model_version,
+                do_lower_case=True,
+                use_fast=use_fast_tokenizers,
+                use_auth_token=use_auth_token,
+            )
+            self.passage_encoder = DPREncoder(
+                pretrained_model_name_or_path=passage_embedding_model,
+                model_type="DPRContextEncoder",
+                use_auth_token=use_auth_token,
+            )
 
         self.processor = TextSimilarityProcessor(
             query_tokenizer=self.query_tokenizer,
@@ -239,6 +262,7 @@ class DensePassageRetriever(DenseRetriever):
             lm1_output_types=["per_sequence"],
             lm2_output_types=["per_sequence"],
             device=self.devices[0],
+            xlm_roberta = xlm_roberta
         )
 
         self.model.connect_heads_with_processor(self.processor.tasks, require_labels=False)
@@ -255,7 +279,6 @@ class DensePassageRetriever(DenseRetriever):
         headers: Optional[Dict[str, str]] = None,
         scale_score: Optional[bool] = None,
         document_store: Optional[BaseDocumentStore] = None,
-        request_id: Optional[Dict[str, str]] = None
     ) -> List[Document]:
         """
         Scan through documents in DocumentStore and return a small number documents
@@ -345,15 +368,10 @@ class DensePassageRetriever(DenseRetriever):
             index = document_store.index
         if scale_score is None:
             scale_score = self.scale_score
-        time1 = time.time()
         query_emb = self.embed_queries(queries=[query])
-        time2 = time.time()
         documents = document_store.query_by_embedding(
             query_emb=query_emb[0], top_k=top_k, filters=filters, index=index, headers=headers, scale_score=scale_score
         )
-        time3 = time.time()
-        logger.info(f"{config.BENCHMARK_LOG_TAG} {{request_id: {request_id['id']}}} {{embed_query_time: {time2-time1}}}")
-        logger.info(f"{config.BENCHMARK_LOG_TAG} {{request_id = {request_id['id']}}} {{query_by_embedding_time: {time3-time2}}}")
         return documents
 
     def retrieve_batch(
@@ -544,6 +562,14 @@ class DensePassageRetriever(DenseRetriever):
             all_embeddings["query"] = np.concatenate(query_embeddings_batched)
         return all_embeddings
 
+    def _embed_queries_for_xml_model(self, queries: List[str]) -> List[np.ndarray]:
+        tokenized_queries = self.query_tokenizer(queries, padding="max_length", return_tensors="pt",
+                                 truncation=True, max_length = self.max_seq_len_query)
+        self.query_encoder.eval()
+        # using the [cls] token embedding as query embedding
+        query_embeddings = self.query_encoder(**tokenized_queries).last_hidden_state[:,0,:]
+        return query_embeddings.detach().numpy()
+
     def embed_queries(self, queries: List[str]) -> np.ndarray:
         """
         Create embeddings for a list of queries using the query encoder.
@@ -551,9 +577,44 @@ class DensePassageRetriever(DenseRetriever):
         :param queries: List of queries to embed.
         :return: Embeddings, one per input query, shape: (queries, embedding_dim)
         """
-        query_dicts = [{"query": q} for q in queries]
-        result = self._get_predictions(query_dicts)["query"]
-        return result
+        if self.use_xml_model:
+            return self._embed_queries_for_xml_model(queries)
+        else:
+            query_dicts = [{"query": q} for q in queries]
+            result = self._get_predictions(query_dicts)["query"]
+            return result
+
+    def _embed_documents_for_xml_model(self, docs: List[Document]) -> List[np.ndarray]:
+        text = [d.content for d in docs]
+
+        print('num of passages to be embeded {}'.format(len(text)))
+
+        ds = Dataset.from_dict({"text": text}).with_format("torch")
+        dataloader = DataLoader(ds, batch_size=self.batch_size)
+
+        def batch_tokenize_and_truncate(text, tokenizer, max_seq_len_passage):
+            # use tokenizer to get inputs to LiLT
+            tokenized_inputs = tokenizer(text, return_tensors="pt", padding="max_length",
+                                 truncation=True, max_length = max_seq_len_passage)
+
+            return tokenized_inputs
+
+
+        passage_embeddings_batched = []
+
+        self.passage_encoder.eval()
+        for batch in dataloader:
+            tokenized_inputs = batch_tokenize_and_truncate(batch['text'],
+                                                           self.passage_tokenizer, self.max_seq_len_passage)
+
+            outputs = self.passage_encoder(**tokenized_inputs)
+            embeddings = outputs.last_hidden_state[:,0,:]
+            passage_embeddings_batched.append(embeddings.detach().numpy())
+
+        passage_embeddings_batched = np.concatenate(passage_embeddings_batched)
+        print('shape of passage embeddings in this batch:', passage_embeddings_batched.shape)
+
+        return passage_embeddings_batched
 
     def embed_documents(self, documents: List[Document]) -> np.ndarray:
         """
@@ -562,6 +623,9 @@ class DensePassageRetriever(DenseRetriever):
         :param documents: List of documents to embed.
         :return: Embeddings of documents, one per input document, shape: (documents, embedding_dim)
         """
+        if self.use_xml_model:
+            return self._embed_documents_for_xml_model(documents)
+
         if self.processor.num_hard_negatives != 0:
             logger.warning(
                 f"'num_hard_negatives' is set to {self.processor.num_hard_negatives}, but inference does "
@@ -1570,7 +1634,6 @@ class EmbeddingRetriever(DenseRetriever):
         headers: Optional[Dict[str, str]] = None,
         scale_score: Optional[bool] = None,
         document_store: Optional[BaseDocumentStore] = None,
-        request_id: Optional[Dict[str, str]] = None,
     ) -> List[Document]:
         """
         Scan through documents in DocumentStore and return a small number documents
@@ -1660,15 +1723,10 @@ class EmbeddingRetriever(DenseRetriever):
             index = document_store.index
         if scale_score is None:
             scale_score = self.scale_score
-        start = time.time()
         query_emb = self.embed_queries(queries=[query])
-        time1 = time.time()
         documents = document_store.query_by_embedding(
             query_emb=query_emb[0], filters=filters, top_k=top_k, index=index, headers=headers, scale_score=scale_score
         )
-        time2 = time.time()
-        logger.info(f"{config.BENCHMARK_LOG_TAG} {{request_id: {request_id['id']}}} {{embed_query_time: {time1-start}}}")
-        logger.info(f"{config.BENCHMARK_LOG_TAG} {{request_id: {request_id['id']}}} {{query_by_embedding_time: {time2-time1}}}")
         return documents
 
     def retrieve_batch(
@@ -1921,90 +1979,56 @@ class EmbeddingRetriever(DenseRetriever):
 class ColBERTRetriever(BaseRetriever):
     def __init__(
         self,
-        root: str,
-        experiment: str,
-        checkpoint: str,
-        collection: str,
-        index_root: str,
-        index_name: str,
-        faiss_name: str = None,
-        faiss_depth: int = 1024,
-        partitions: int = 32768,
-        query_maxlen: int = 32,
-        doc_maxlen: int = 180,
-        dim: int = 128,
-        similarity: str = 'cosine',
-        mask_punctuation: bool = True,
-        nprobe: int = 32,
-        part_range: str = None,
+        document_store: PLAIDDocumentStore,
+        use_gpu: bool = True,
         top_k: int = 10,
-        rank: int = -1,
-        amp: bool = True,
-        progress_bar: bool = True
+        devices: Optional[List[Union[str, torch.device]]] = None,
     ):
-        self.args = type('', (), {})()
-        self.args.root = root
-        self.args.experiment = experiment
-        self.args.checkpoint = checkpoint
-        self.args.index_root = index_root
-        self.args.index_name = index_name
-        self.args.index_path = os.path.join(index_root, index_name)
-        self.args.faiss_name = faiss_name
-        self.args.partitions = partitions
-        self.args.faiss_index_path = os.path.join(self.args.index_path, get_faiss_index_name(self.args))
-        self.args.faiss_depth = faiss_depth
-        self.args.query_maxlen = query_maxlen
-        self.args.doc_maxlen = doc_maxlen
-        self.args.dim = dim
-        self.args.similarity = similarity
-        self.args.mask_punctuation = mask_punctuation
-        self.args.nprobe = nprobe
-        self.args.part_range = part_range
-        self.args.rank = rank
-        self.args.amp = amp,
+        super().__init__()  # TODO: Not sure I need this
+
+        if devices is not None:
+            self.devices = [torch.device(device) for device in devices]
+        else:
+            self.devices, _ = initialize_device_settings(use_cuda=use_gpu, multi_gpu=True)
+
+        self.document_store = document_store
+        self.use_gpu = use_gpu
         self.top_k = top_k
-        self.progress_bar = progress_bar
 
-        self.collection = open(collection).readlines()
-        self.colbert, self.checkpoint = load_colbert(self.args)
-        self.inference = ModelInference(self.colbert, amp=self.args.amp)
-        self.ranker = Ranker(self.args, self.inference, faiss_depth=self.args.faiss_depth)
+        logger.info(f"Init retriever using the store: {document_store}")
 
-        logger.info(f"Init retriever using embeddings of model {checkpoint}")
+    def retrieve(
+        self, query: str, top_k: Optional[int] = None, filters=None, **kwargs
+    ) -> List[Document]:
 
-    def retrieve(self, query: str, filters: dict = None, top_k: Optional[int] = None, index: str = None) -> List[Document]:
-        """
-        ColBERT specific implementation using faiss
-        """
+        if filters:
+            logger.info(f"Filters are not implemented for ColBERT/PLAID.")
+
         if top_k is None:
             top_k = self.top_k
 
-        Q = self.ranker.encode([query])
-        pids, scores = self.ranker.rank(Q)
-
-        documents = []
-        for pid, score in zip(pids[:top_k], scores[:top_k]):
-            doc_dict = {
-                "id": pid,
-                "content": self.collection[pid],
-                "content_type": "",
-                "answer": self.collection[pid], # placeholder
-                "meta": {},
-                "score": score,
-                "probability": score, # placeholder
-                "embedding": "",
-            }
-            document = Document.from_dict(doc_dict)
-            documents.append(document)
+        documents = self.document_store.query(query_str=query, top_k=top_k)
 
         return documents
 
-    def embed_queries(self, texts: List[str]) -> List[np.ndarray]:
-        raise NotImplementedError
+    def retrieve_batch(
+        self,
+        queries: List[str],
+        top_k: Optional[int] = None,
+        scale_score: bool = None,
+        filters=None,
+        **kwargs,
+    ) -> List[List[Document]]:
 
-    def embed_passages(self, docs: List[Document]) -> List[np.ndarray]:
-        raise NotImplementedError
+        if filters:
+            logger.info(f"Filters are not implemented for ColBERT/PLAID.")
 
+        if top_k is None:
+            top_k = self.top_k
+
+        documents = self.document_store.query_batch(queries, top_k)
+
+        return documents
 
 class MultihopEmbeddingRetriever(EmbeddingRetriever):
     """

@@ -8,13 +8,12 @@ from datetime import timedelta
 from functools import partial
 from hashlib import sha1
 from typing import Dict, List, Optional, Any, Set, Tuple, Union
-from haystack import config
 
 try:
     from typing import Literal
 except ImportError:
     from typing_extensions import Literal  # type: ignore
-import time
+
 import copy
 import json
 import inspect
@@ -481,7 +480,6 @@ class Pipeline:
                       the Nodes received and the output they generated. You can then find all debug information in the dictionary returned by this method under the key `_debug`.
         """
         # validate the node names
-        start = time.time()
         self._validate_node_names_in_params(params=params)
 
         root_node = self.root_node
@@ -523,16 +521,10 @@ class Pipeline:
                 node_input["params"][node_id]["debug"] = debug
 
             predecessors = set(nx.ancestors(self.graph, node_id))
-            time0 = time.time()
             if predecessors.isdisjoint(set(queue.keys())):  # only execute if predecessor nodes are executed
                 try:
                     logger.debug("Running node '%s` with input: %s", node_id, node_input)
-                    time1 = time.time()
-                    logger.info(f"{config.BENCHMARK_LOG_TAG} {{request_id: {params['request_id']['id']}}} Running node `{node_id}` {{{node_id}_preprocess: {time1 - time0}}}")
                     node_output, stream_id = self._run_node(node_id, node_input)
-                    time2 = time.time()
-                    interval = time2 - time1
-                    logger.info(f"{config.BENCHMARK_LOG_TAG} {{request_id: {params['request_id']['id']}}} Running node `{node_id}` {{{node_id}_interval: {interval}}}")
                 except Exception as e:
                     # The input might be a really large object with thousands of embeddings.
                     # If you really want to see it, raise the log level.
@@ -541,7 +533,6 @@ class Pipeline:
                         f"Exception while running node '{node_id}': {e}\nEnable debug logging to see the data that was passed when the pipeline failed."
                     ) from e
                 queue.pop(node_id)
-                time3 = time.time()
                 #
                 if stream_id == "split":
                     for stream_id in [key for key in node_output.keys() if key.startswith("output_")]:
@@ -580,17 +571,11 @@ class Pipeline:
                         else:
                             queue[n] = node_output
                 i = 0
-                time4 = time.time()
-                logger.info(f"{config.BENCHMARK_LOG_TAG} {{request_id: {params['request_id']['id']}}} Running node `{node_id}` {{{node_id}_postprocess: {time4-time3}}}")
             else:
-                time4 = time.time()
-                logger.info(f"{config.BENCHMARK_LOG_TAG} {{request_id: {params['request_id']['id']}}} Running node `{node_id}` {{{node_id}_postprocess: {time4-time3}}}")
                 i += 1  # attempt executing next node in the queue as current `node_id` has unprocessed predecessors
 
         self.run_total += 1
         self.send_pipeline_event_if_needed(is_indexing=file_paths is not None)
-        end = time.time()
-        logger.info(f"{config.BENCHMARK_LOG_TAG} {{request_id: {params['request_id']['id']}}} {{pipeline_total_run_time: {end-start}}}")
         return node_output
 
     def run_batch(  # type: ignore
@@ -1918,6 +1903,7 @@ class Pipeline:
                                              `_` sign must be used to specify nested hierarchical properties.
         :param strict_version_check: whether to fail in case of a version mismatch (throws a warning otherwise)
         """
+
         config = read_pipeline_config_from_yaml(path)
         return cls.load_from_config(
             pipeline_config=config,
@@ -2298,7 +2284,9 @@ class Pipeline:
         return datetime.datetime.now(datetime.timezone.utc) - self.init_time
 
     def send_pipeline_event(self, is_indexing: bool = False):
-        fingerprint = sha1(json.dumps(self.get_config(), sort_keys=True).encode()).hexdigest()
+        json_repr = json.dumps(self.get_config(), sort_keys=True, default=lambda o: "<not serializable>")
+        fingerprint = sha1(json_repr.encode()).hexdigest()
+
         send_custom_event(
             "pipeline",
             payload={

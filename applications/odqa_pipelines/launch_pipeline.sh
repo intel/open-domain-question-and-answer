@@ -95,7 +95,6 @@ elif [[ $pipeline = "colbert_opt_faq" ]]; then
     config='config/env.'${database}'.esds_bm25r_colbert_opt'
     if [[ $database = "stackoverflow" ]]; then
         echo "Cannot support ${pipeline} with ${database}, need the fine-tuned colbert model with ${database}"
-        exit 0    
         exit 0
     fi
 fi
@@ -118,5 +117,6 @@ if [[ $nginx = "1" ]]; then
 fi
 
 echo "run the ${pipeline} with ${database} on ${device}"
+yaml_file='docker-compose/'$yaml_file
 
-docker-compose --env-file $config -f $yaml_file up $build --force-recreate
+docker-compose --env-file $config -f $yaml_file up $build

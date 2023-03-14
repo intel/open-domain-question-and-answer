@@ -19,6 +19,7 @@ OpenDistroElasticsearchDocumentStore = safe_import(
 )
 SQLDocumentStore = safe_import("haystack.document_stores.sql", "SQLDocumentStore", "sql")
 FAISSDocumentStore = safe_import("haystack.document_stores.faiss", "FAISSDocumentStore", "faiss")
+PLAIDDocumentStore = safe_import("haystack.document_stores.plaid", "PLAIDDocumentStore", "plaid")
 PineconeDocumentStore = safe_import("haystack.document_stores.pinecone", "PineconeDocumentStore", "pinecone")
 MilvusDocumentStore = safe_import("haystack.document_stores.milvus", "MilvusDocumentStore", "milvus")
 WeaviateDocumentStore = safe_import("haystack.document_stores.weaviate", "WeaviateDocumentStore", "weaviate")

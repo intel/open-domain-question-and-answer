@@ -76,7 +76,7 @@ def query(query, filters={}, top_k_reader=1000, top_k_ranker=1000, top_k_retriev
     start = time.time()
     response_raw = requests.post(url, json=req)
     interval=time.time() - start
-    print(f"pid={pid}, time={interval}")
+    print(f"{{pid: {pid}}}, {{time: {interval}}}")
     if response_raw.status_code >= 400 and response_raw.status_code != 503:
         ret = 0
         raise Exception(f"{vars(response_raw)}")
@@ -183,7 +183,7 @@ if __name__ == '__main__':
         result = result.sort_values(by=['time'])
         average_time = result.apply(np.average, axis=0)
         print(average_time)
-        print(f"query number={config.query_number}, total time={total_time}, fps={config.processes/average_time.at['time']}")
+        print(f"{{query_number: {config.query_number}}}, {{total_time: {total_time}}}, {{fps: {config.processes/average_time.at['time']}}}")
     else:
         print(f"accuracy benchmark")
         test_accuracy(config)
