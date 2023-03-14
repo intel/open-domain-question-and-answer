@@ -2,7 +2,6 @@
 from typing import Dict, List, Optional, Union
 
 import logging
-import time
 from collections import OrderedDict, namedtuple
 
 import pandas as pd
@@ -13,7 +12,7 @@ from haystack.document_stores.base import BaseDocumentStore, FilterType
 from haystack.document_stores import KeywordDocumentStore
 from haystack.nodes.retriever import BaseRetriever
 from haystack.errors import DocumentStoreError
-from haystack import config
+
 
 logger = logging.getLogger(__name__)
 
@@ -125,7 +124,6 @@ class BM25Retriever(BaseRetriever):
         headers: Optional[Dict[str, str]] = None,
         scale_score: Optional[bool] = None,
         document_store: Optional[BaseDocumentStore] = None,
-        request_id: Optional[Dict[str, str]] = None,
     ) -> List[Document]:
         """
         Scan through documents in DocumentStore and return a small number documents
@@ -227,8 +225,6 @@ class BM25Retriever(BaseRetriever):
         if all_terms_must_match is None:
             all_terms_must_match = self.all_terms_must_match
 
-        logger.info(f"retriever index = {index}, top_k = {top_k}")
-        start = time.time()
         documents = document_store.query(
             query=query,
             filters=filters,
@@ -239,9 +235,6 @@ class BM25Retriever(BaseRetriever):
             headers=headers,
             scale_score=scale_score,
         )
-        interval = time.time() - start
-        logger.info(f"{config.BENCHMARK_LOG_TAG} {{request_id: {request_id['id']}}} {{retriever_time: {interval}}}  {{speed: {top_k/(interval)} docs/second}}")
-        logger.info(f"retrieve document number= {len(documents)}")
         return documents
 
     def retrieve_batch(
@@ -381,7 +374,7 @@ class ElasticsearchRetriever(BM25Retriever):
         all_terms_must_match: bool = False,
         custom_query: Optional[str] = None,
     ):
-        logger.warning("This class is now deprecated. Please use the BM25Retriever instead")
+        logger.warn("This class is now deprecated. Please use the BM25Retriever instead")
         super().__init__(document_store, top_k, all_terms_must_match, custom_query)
 
 
@@ -435,7 +428,7 @@ class ElasticsearchFilterOnlyRetriever(FilterRetriever):
         all_terms_must_match: bool = False,
         custom_query: Optional[str] = None,
     ):
-        logger.warning("This class is now deprecated. Please use the FilterRetriever instead")
+        logger.warn("This class is now deprecated. Please use the FilterRetriever instead")
         super().__init__(document_store, top_k, all_terms_must_match, custom_query)
 
 

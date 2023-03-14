@@ -1,6 +1,6 @@
-[submodule "third_party/ColBERT"]
-	path = third_party/ColBERT
-	url = https://github.com/yuanwu2017/ColBERT.git
 [submodule "third_party/sentence-transformers"]
 	path = third_party/sentence-transformers
 	url = https://github.com/UKPLab/sentence-transformers.git
+[submodule "third_party/ColBERT"]
+	path = third_party/ColBERT
+	url = https://github.com/kaixuanliu/ColBERT.git

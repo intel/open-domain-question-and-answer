@@ -8,6 +8,7 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
     libpoppler-cpp-dev \
     tesseract-ocr \
     wget \
+    git \
     libtesseract-dev \
     poppler-utils \
     libmkl-dev

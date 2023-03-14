@@ -1,4 +1,4 @@
-from typing import Dict, Any
+from typing import Dict, Any, Mapping
 
 import logging
 import time
@@ -18,8 +18,8 @@ from rest_api.config import INDEX_NAME
 from rest_api.config import CHECKPOINT_PATH
 from rest_api.config import QUERY_PIPELINE_NAME
 from rest_api.config import QUERY_PIPELINE_NAME
-from rest_api.config import BENCHMARK_LOG_TAG
 from rest_api.schema import QueryRequest, QueryResponse
+
 
 logging.getLogger("haystack").setLevel(LOG_LEVEL)
 logger = logging.getLogger("haystack")
@@ -32,7 +32,7 @@ router = APIRouter()
 app: FastAPI = get_app()
 query_pipeline: Pipeline = get_pipelines().get("query_pipeline", None)
 concurrency_limiter = get_pipelines().get("concurrency_limiter", None)
-request_id = 0
+
 
 @router.get("/initialized")
 def check_status():
@@ -60,22 +60,14 @@ def query(request: QueryRequest):
     This endpoint receives the question as a string and allows the requester to set
     additional parameters that will be passed on to the Haystack pipeline.
     """
-    logger.info(f"pipelinename = {QUERY_PIPELINE_NAME}")
-    if 'request_id' not in request.params:
-        global request_id
-        request.params['request_id'] = {'id': str(request_id)}
-        request_id = request_id + 1
 
     with concurrency_limiter.run():
-        start_time = time.time()
         if QUERY_PIPELINE_NAME != 'esds_bm25r_colbert' : 
             result = _process_request(query_pipeline, request)
         else : 
             result = _process_request_bm25_colbert(query_pipeline, request)
 #        p = QAPipe(request)
 #        result = p.get_pipe().process_request(request)
-        end_time = time.time()
-        logger.info(f"{BENCHMARK_LOG_TAG} {{request_id: {request.params['request_id']['id']}}} {{end2end_time: {(end_time-start_time)}}}")
         return result
 
 def _process_request_bm25_colbert(pipeline, request) -> QueryResponse:
@@ -133,7 +125,7 @@ def _process_request(pipeline, request) -> Dict[str, Any]:
 
     # format targeted node filters (e.g. "params": {"Retriever": {"filters": {"value"}}})
     for key in params.keys():
-        if "filters" in params[key].keys():
+        if isinstance(params[key], Mapping) and "filters" in params[key].keys():
             params[key]["filters"] = _format_filters(params[key]["filters"])
 
     result = pipeline.run(query=request.query, params=params, debug=request.debug)

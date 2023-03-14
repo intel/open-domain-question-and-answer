@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional, Union
+from typing import List, Optional, Union
 
 import logging
 from abc import abstractmethod
@@ -32,11 +32,11 @@ class BaseRanker(BaseComponent):
     ) -> Union[List[Document], List[List[Document]]]:
         pass
 
-    def run(self, query: str, documents: List[Document], top_k: Optional[int] = None, request_id: Optional[Dict[str, str]] = None):  # type: ignore
+    def run(self, query: str, documents: List[Document], top_k: Optional[int] = None):  # type: ignore
         self.query_count += 1
         if documents:
             predict = self.timing(self.predict, "query_time")
-            results = predict(query=query, documents=documents, top_k=top_k, request_id=request_id)
+            results = predict(query=query, documents=documents, top_k=top_k)
         else:
             results = []
 

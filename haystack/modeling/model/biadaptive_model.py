@@ -44,6 +44,7 @@ class BiAdaptiveModel(nn.Module):
         device: torch.device = torch.device("cuda"),
         lm1_output_types: Union[str, List[str]] = ["per_sequence"],
         lm2_output_types: Union[str, List[str]] = ["per_sequence"],
+        xlm_roberta: Optional[bool] = False,
         loss_aggregation_fn: Optional[Callable] = None,
     ):
         """
@@ -78,15 +79,19 @@ class BiAdaptiveModel(nn.Module):
 
         self.device = device
         self.language_model1 = language_model1.to(device)
-        self.lm1_output_dims = language_model1.output_dims
+        self.use_xml_model = xlm_roberta
+        if not self.use_xml_model:
+            self.lm1_output_dims = language_model1.output_dims
         self.language_model2 = language_model2.to(device)
-        self.lm2_output_dims = language_model2.output_dims
+        if not self.use_xml_model:
+            self.lm2_output_dims = language_model2.output_dims
         self.dropout1 = nn.Dropout(embeds_dropout_prob)
         self.dropout2 = nn.Dropout(embeds_dropout_prob)
         self.prediction_heads = nn.ModuleList([ph.to(device) for ph in prediction_heads])
         self.lm1_output_types = [lm1_output_types] if isinstance(lm1_output_types, str) else lm1_output_types
         self.lm2_output_types = [lm2_output_types] if isinstance(lm2_output_types, str) else lm2_output_types
-        self.log_params()
+        if not self.use_xml_model:
+            self.log_params()
         # default loss aggregation function is a simple sum (without using any of the optional params)
         if not loss_aggregation_fn:
             loss_aggregation_fn = loss_per_head_sum
@@ -103,8 +108,12 @@ class BiAdaptiveModel(nn.Module):
             os.makedirs(Path.joinpath(save_dir, Path(lm1_name)))
         if not os.path.exists(Path.joinpath(save_dir, Path(lm2_name))):
             os.makedirs(Path.joinpath(save_dir, Path(lm2_name)))
-        self.language_model1.save(Path.joinpath(save_dir, Path(lm1_name)))
-        self.language_model2.save(Path.joinpath(save_dir, Path(lm2_name)))
+        if self.use_xml_model:
+            self.language_model1.save_pretrained(Path.joinpath(save_dir, Path(lm1_name)))
+            self.language_model2.save_pretrained(Path.joinpath(save_dir, Path(lm2_name)))
+        else:
+            self.language_model1.save(Path.joinpath(save_dir, Path(lm1_name)))
+            self.language_model2.save(Path.joinpath(save_dir, Path(lm2_name)))
         for i, ph in enumerate(self.prediction_heads):
             logger.info("prediction_head saving")
             ph.save(save_dir, i)
@@ -341,10 +350,16 @@ class BiAdaptiveModel(nn.Module):
         pooled_output = [None, None]
 
         if query_input_ids is not None and query_segment_ids is not None and query_attention_mask is not None:
-            pooled_output1, _ = self.language_model1(
-                input_ids=query_input_ids, segment_ids=query_segment_ids, attention_mask=query_attention_mask
-            )
-            pooled_output[0] = pooled_output1
+            if self.use_xml_model:
+                output1 = self.language_model1(
+                    input_ids=query_input_ids, token_type_ids=query_segment_ids, attention_mask=query_attention_mask
+                ).last_hidden_state
+                pooled_output[0] = output1[:,0,:]
+            else:
+                pooled_output1, _ = self.language_model1(
+                    input_ids=query_input_ids, segment_ids=query_segment_ids, attention_mask=query_attention_mask
+                )
+                pooled_output[0] = pooled_output1
 
         if passage_input_ids is not None and passage_segment_ids is not None and passage_attention_mask is not None:
 
@@ -353,10 +368,16 @@ class BiAdaptiveModel(nn.Module):
             passage_attention_mask = passage_attention_mask.view(-1, max_seq_len)
             passage_segment_ids = passage_segment_ids.view(-1, max_seq_len)
 
-            pooled_output2, _ = self.language_model2(
-                input_ids=passage_input_ids, segment_ids=passage_segment_ids, attention_mask=passage_attention_mask
-            )
-            pooled_output[1] = pooled_output2
+            if self.use_xml_model:
+                output2 = self.language_model2(
+                    input_ids=passage_input_ids, token_type_ids=passage_segment_ids, attention_mask=passage_attention_mask
+                ).last_hidden_state
+                pooled_output[1] = output2[:,0,:]
+            else:
+                pooled_output2, _ = self.language_model2(
+                    input_ids=passage_input_ids, segment_ids=passage_segment_ids, attention_mask=passage_attention_mask
+                )
+                pooled_output[1] = pooled_output2
 
         return tuple(pooled_output)
 
@@ -384,8 +405,11 @@ class BiAdaptiveModel(nn.Module):
         They could diverge in case of custom vocabulary added via tokenizer.add_tokens()
         """
 
-        model1_vocab_len = self.language_model1.model.resize_token_embeddings(new_num_tokens=None).num_embeddings
-
+        model1_vocab_len = 768  #default value
+        if self.use_xml_model:
+            model1_vocab_len = self.language_model1.resize_token_embeddings(new_num_tokens=None).num_embeddings
+        else:
+            model1_vocab_len = self.language_model1.model.resize_token_embeddings(new_num_tokens=None).num_embeddings
         msg = (
             f"Vocab size of tokenizer {vocab_size1} doesn't match with model {model1_vocab_len}. "
             "If you added a custom vocabulary to the tokenizer, "
@@ -393,8 +417,11 @@ class BiAdaptiveModel(nn.Module):
         )
         assert vocab_size1 == model1_vocab_len, msg
 
-        model2_vocab_len = self.language_model2.model.resize_token_embeddings(new_num_tokens=None).num_embeddings
-
+        model2_vocab_len = 768  #default value
+        if self.use_xml_model:
+            model2_vocab_len = self.language_model2.resize_token_embeddings(new_num_tokens=None).num_embeddings
+        else:
+            model2_vocab_len = self.language_model2.model.resize_token_embeddings(new_num_tokens=None).num_embeddings
         msg = (
             f"Vocab size of tokenizer {vocab_size1} doesn't match with model {model2_vocab_len}. "
             "If you added a custom vocabulary to the tokenizer, "

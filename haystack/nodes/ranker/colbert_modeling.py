@@ -1,4 +1,3 @@
-from argparse import Namespace
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 import numpy as np
@@ -11,8 +10,8 @@ from haystack.nodes.ranker import BaseRanker
 from haystack.schema import Document
 from torch.nn import DataParallel
 
-from colbert.modeling.inference import ModelInference
-from .colbert_utils import load_colbert
+from colbert.modeling.checkpoint import Checkpoint
+from colbert.infra.config import ColBERTConfig
 from haystack import config
 
 logger = logging.getLogger(__name__)
@@ -49,33 +48,24 @@ class ColBERTRanker(BaseRanker):
             self.devices, _ = initialize_device_settings(use_cuda=use_gpu, multi_gpu=True)
 
         logger.info(f"devices ='{self.devices}'")
-        args = Namespace()
-        args.colbert = None
-        args.checkpoint = model_path
-        args.query_maxlen = query_maxlen
-        args.doc_maxlen = doc_maxlen
-        args.dim = dim
-        args.similarity = similarity
-        args.mask_punctuation = mask_punctuation
-        args.rank = rank
-        args.amp = amp
-        self.args = args
         self.batch_size = batch_size
 
-        args.colbert, self.args.checkpoint = load_colbert(args, str(self.devices[0]))
-        colbert_inference = ModelInference(args.colbert, amp=amp)
-        self.transformer_model = colbert_inference
-        self.transformer_model.colbert.eval()
+        base_config = ColBERTConfig(
+                doc_maxlen=doc_maxlen,
+                query_maxlen=query_maxlen,
+                dim = dim,
+                similarity = similarity,
+                amp = amp,
+                bsize = batch_size
+            )
+        checkpoint_config = ColBERTConfig.load_from_checkpoint(model_path)
+        final_config = ColBERTConfig.from_existing(checkpoint_config, base_config)
+        self.transformer_model = Checkpoint(model_path, colbert_config=final_config)
+        self.transformer_model.eval()
+        self.transformer_model.to(str(self.devices[0]))
 
         if len(self.devices) > 1:
             self.model = DataParallel(self.transformer_model.colbert, device_ids=self.devices)
-        self.transformer_model.colbert.to(str(self.devices[0]))
-
-        # model_dir = (
-        #     "/workdisk/nosnap/colbert/colbert-so-train/train.py/2021-11-14_09.50.16/checkpoints/"
-        # )
-        # model_file = "colbert.dnn"
-        # model_fullpath = model_dir + model_file
     
     def _encode_query(self, query_text, batch_size=1, to_cpu=True):
         return self.transformer_model.queryFromText([query_text], bsize=batch_size, to_cpu=to_cpu)
@@ -86,8 +76,15 @@ class ColBERTRanker(BaseRanker):
     def _encode_multiple_docs(self, docs: List[str], batch_size=1, to_cpu=True):
         return self.transformer_model.docFromText(docs, bsize=batch_size, to_cpu=to_cpu)
 
+    def calc_score(self, Q, D, mask=None):
+        scores = (D @ Q)
+        scores = scores if mask is None else scores * mask.unsqueeze(-1)
+        scores = scores.max(1)
+
+        return scores.values.sum(-1).cpu()
+
     def predict(
-        self, query: str, documents: List[Document], top_k: Optional[int] = None, request_id: Optional[Dict[str, str]] = None, to_cpu=True
+        self, query: str, documents: List[Document], top_k: Optional[int] = None, to_cpu=True
     ):
         if top_k is None:
             top_k = self.top_k
@@ -97,10 +94,9 @@ class ColBERTRanker(BaseRanker):
         if config.COLBERT_OPT == "False" :
             docs_str = [d.content for d in documents]
             docs = self._encode_multiple_docs(docs_str, batch_size=self.batch_size, to_cpu=to_cpu)
+            docs = torch.stack(list(docs[0]), dim=0)
             time2 = time.time()
-            scores = self.transformer_model.score(
-                Q.permute(0, 2, 1), docs, mask=None, lengths=None, explain=False
-            )
+            scores = self.calc_score(Q.permute(0, 2, 1), docs)
         else:
             docs_embedding = [d.to_dict()["meta"]["colbert_emb"] for d in documents]
             docs_tensor = [torch.reshape(torch.tensor(decode(embedding).tolist(), dtype=torch.float32), (-1, 128))  for embedding in docs_embedding]
@@ -109,11 +105,8 @@ class ColBERTRanker(BaseRanker):
 
             docs_tensor = torch.nn.utils.rnn.pad_sequence(docs_tensor, batch_first=True)
             time2 = time.time()
-            scores = self.transformer_model.score(
-                Q.permute(0, 2, 1), docs_tensor, mask=None, lengths=None, explain=False
-            )       
+            scores = self.calc_score(Q.permute(0, 2, 1), docs_tensor)
         time3 = time.time()
-        logger.info(f"{config.BENCHMARK_LOG_TAG} ----------------------Score end---------------------")
         # rank documents according to scores
         sorted_scores_and_documents = sorted(
             zip(scores, documents),
@@ -127,11 +120,6 @@ class ColBERTRanker(BaseRanker):
             sorted_documents.append(doc)
 
         time4 = time.time()
-        logger.info(f"{config.BENCHMARK_LOG_TAG} {{request_id: {request_id['id']}}} {{query_encode_time: {time1-start}}}")
-        logger.info(f"{config.BENCHMARK_LOG_TAG} {{request_id: {request_id['id']}}} {{docs_encode_time: {time2-time1}}}")
-        logger.info(f"{config.BENCHMARK_LOG_TAG} {{request_id: {request_id['id']}}} {{score_time: {time3-time2}}}")
-        logger.info(f"{config.BENCHMARK_LOG_TAG} {{request_id: {request_id['id']}}} {{sort_docs_time: {time4-time3}}}")
-        logger.info(f"{config.BENCHMARK_LOG_TAG} {{request_id: {request_id['id']}}} {{total_rank_time: {time4-start}}}")
         return sorted_documents[:top_k]
 
     def predict_batch(
