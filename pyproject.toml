@@ -55,7 +55,7 @@ dependencies = [
   "pandas",
   "rank_bm25",
   "tensorboard",
-
+  "datasets",
   # Utils
   "dill",  # pickle extension for (de-)serialization
   "tqdm",  # progress bars in model download and training scripts

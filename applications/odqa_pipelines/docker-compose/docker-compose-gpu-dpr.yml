@@ -3,7 +3,7 @@ services:
 
   haystack-api:
     build:
-      context: ../../../
+      context: ../../../docker/
       dockerfile: Dockerfile-GPU
       args:
         - http_proxy=$HTTP_PROXY

@@ -2,7 +2,7 @@ version: "3"
 services:
   haystack-api:
     build:
-      context: ../../../
+      context: ../../../docker
       dockerfile: Dockerfile
       args:
         - http_proxy=$HTTP_PROXY
