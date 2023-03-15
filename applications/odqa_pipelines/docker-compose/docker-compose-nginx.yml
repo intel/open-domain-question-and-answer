@@ -2,7 +2,7 @@ version: "3"
 services:
   haystack-api_1:
     build:
-      context: ../../../
+      context: ../../../docker/
       dockerfile: Dockerfile
       args:
         - http_proxy=$HTTP_PROXY
@@ -50,7 +50,7 @@ services:
     command: "/bin/bash -c 'sleep 10 && gunicorn rest_api.application:app -b 0.0.0.0 -k uvicorn.workers.UvicornWorker --workers 2 --timeout 600'"
   haystack-api_2:
     build:
-      context: ../../../
+      context: ../../../docker/
       dockerfile: Dockerfile
       args:
         - http_proxy=$HTTP_PROXY
@@ -98,7 +98,7 @@ services:
     command: "/bin/bash -c 'sleep 10 && gunicorn rest_api.application:app -b 0.0.0.0 -k uvicorn.workers.UvicornWorker --workers 2 --timeout 600'"  
   haystack-api_3:
     build:
-      context: ../../../
+      context: ../../../docker/
       dockerfile: Dockerfile
       args:
         - http_proxy=$HTTP_PROXY
@@ -146,7 +146,7 @@ services:
     command: "/bin/bash -c 'sleep 10 && gunicorn rest_api.application:app -b 0.0.0.0 -k uvicorn.workers.UvicornWorker --workers 2 --timeout 600'"  
   nginx-dispatch:
     build:
-      context: ../../nginx
+      context: ../../../nginx
       args:
         - http_proxy=$HTTP_PROXY
         - https_proxy=$HTTPS_PROXY
