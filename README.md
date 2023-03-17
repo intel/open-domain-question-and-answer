@@ -4,25 +4,13 @@ We provide three Intel Optimized pipelines, and setup a benchmark test tool to c
 
 ### Dependencies
 ##### Install Docker and Docker Compose
-**Note:** Version v2.0 or above of docker-compose needs to be installed
+**Note:** If you have docker and docker-compose installed on your machine, then skip this.
 
 ```bash
-# install required software packages
-yum install -y yum-utils
-  
-# set up the repository
-yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
-
-# install and start service
-yum install -y docker-ce
-systemctl start docker
-
-# install docker compose
-curl -SL https://github.com/docker/compose/releases/download/v2.6.1/docker-compose-linux-x86_64 -o /usr/local/bin/docker-compose
-chmod +x /usr/local/bin/docker-compose
-ln -sf /usr/local/bin/docker-compose /usr/bin/docker-compose
-# check the installation
-echo `docker-compose version`
+# change to sudo privileges
+sudo su
+# run shell script (support Red Hat Linux)
+./prepare_env.sh
 ```
 
 ### Run Optimized Pipelines
@@ -39,7 +27,7 @@ git submodule update --init --recursive
 ##### Set proxy
 docker container need to download model from [Huggingface](https://huggingface.co/) and install related dependencies from Internet, hence we may need to set environment param of proxy for it. Here we map HTTP_PROXY and HTTPS_PROXY from host to the docker container. So please set correct environment param for HTTP_PROXY and HTTPS_PROXY on the host machine. 
 ##### Prepare the searching database and faiss indexing files.
-Please refer to [examples/Indexing](https://github.com/intel/open-domain-question-and-answer/tree/master/examples/indexing)
+Please refer to [applications/Indexing](https://github.com/intel/open-domain-question-and-answer/tree/main/applications/indexing)
 
 ##### Modify the config
  After executing the previous step(examples/indexing), you should get the colbert model and faiss indexing files.
@@ -48,9 +36,9 @@ Please refer to [examples/Indexing](https://github.com/intel/open-domain-questio
  
 ##### 3. Run Demo Commands
 
-Go to examples/odqa-pipelines 
+Go to applications/odqa-pipelines 
 ```bash
-cd examples/odqa_pipelines
+cd applications/odqa_pipelines
 ```
 
  **Note:** 
@@ -61,44 +49,39 @@ cd examples/odqa_pipelines
     **GPU:**
     ```bash
     #stackoverflow database
-    ./run-demos.sh -r 1 -p emr_faq -d gpu -n 0 -e stackoverflow  
+    ./launch_pipeline.sh -r 1 -p emr_faq -d gpu -n 0 -e stackoverflow  
     #marco database
-    ./run-demos.sh -r 1 -p emr_faq -d gpu -n 0 -e marco
+    ./launch_pipeline.sh -r 1 -p emr_faq -d gpu -n 0 -e marco
    ``` 
     **CPU:**
     ```bash
     #stackoverflow database
-    ./run-demos.sh -r 1 -p emr_faq -d cpu -n 0 -e stackoverflow  
+    ./launch_pipeline.sh -r 1 -p emr_faq -d cpu -n 0 -e stackoverflow  
     #marco database
-    ./run-demos.sh -r 1 -p emr_faq -d cpu -n 0 -e marco
+    ./launch_pipeline.sh -r 1 -p emr_faq -d cpu -n 0 -e marco
     ```
     
 - Pipeline2: ElasticsearchDocumentStore->BM25Retriever->ColbertRanker-> Docs2Answers  
     prepare colBert model:
     ```bash
-    # download the colbert model and build the haystack-ray image
+    # download the colbert model
     cd ../../
     mkdir data
     wget https://downloads.cs.stanford.edu/nlp/data/colbert/colbertv2/colbertv2.0.tar.gz 
     tar -xvzf colbertv2.0.tar.gz
     mv colbertv2.0/* data/
-    #or you can set HOST_SOURCE in config/env.marco.esds_bm25r_colbert or config/env.marco.esds_bm25r_colbert_opt file to where you place the model
-    cd examples/odqa_pipelines
+    #or you can set HOST_SOURCE in config/env.marco.esds_bm25r_colbert file to where you place the model
+    cd applications/odqa_pipelines
     ```
 
     **GPU:**
     ```bash
     #marco database
-    ./run-demos.sh -r 1 -p colbert_faq -d gpu -n 0 -e marco 
-    # ColBert optimized with pre-computation:
-    ./run-demos.sh -r 1 -p colbert_opt_faq -d gpu -n 0 -e marco 
+    ./launch_pipeline.sh -r 1 -p colbert_faq -d gpu -n 0 -e marco 
     ```
     **CPU:**
     ```bash
-    ./run-demos.sh -r 1 -p colbert_faq -d cpu -n 0 -e marco 
-    
-    # ColBert optimized with pre-computation:
-    ./run-demos.sh -r 1 -p colbert_opt_faq -d cpu -n 0 -e marco 
+    ./launch_pipeline.sh -r 1 -p colbert_faq -d cpu -n 0 -e marco 
     ```
 - Pipeline3：FAISSDocumentStore->DPR→Docs2Answers  
     prepare faiss indexed file for stackoverflow:
@@ -119,16 +102,16 @@ cd examples/odqa_pipelines
     **GPU:**
     ```bash
     #stackoverflow database
-    ./run-demos.sh -r 1 -p faiss_faq -d gpu -n 0 -e stackoverflow  
+    ./launch_pipeline.sh -r 1 -p faiss_faq -d gpu -n 0 -e stackoverflow  
     #marco database
-    ./run-demos.sh -r 1 -p faiss_faq -d gpu -n 0 -e marco
+    ./launch_pipeline.sh -r 1 -p faiss_faq -d gpu -n 0 -e marco
     ```
     **CPU:**
     ```bash
     #stackoverflow database
-    ./run-demos.sh -r 1 -p faiss_faq -d cpu -n 0 -e stackoverflow  
+    ./launch_pipeline.sh -r 1 -p faiss_faq -d cpu -n 0 -e stackoverflow  
     #marco database
-    ./run-demos.sh -r 1 -p faiss_faq -d cpu -n 0 -e marco
+    ./launch_pipeline.sh -r 1 -p faiss_faq -d cpu -n 0 -e marco
     ```
 
 ### Benchmark tool
