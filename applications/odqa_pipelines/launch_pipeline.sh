@@ -90,13 +90,6 @@ elif [[ $pipeline = "colbert_faq" ]]; then
         echo "Cannot support ${pipeline} with ${database}, need the fine-tuned colbert model with ${database}"
         exit 0    
     fi 
-
-elif [[ $pipeline = "colbert_opt_faq" ]]; then
-    config='config/env.'${database}'.esds_bm25r_colbert_opt'
-    if [[ $database = "stackoverflow" ]]; then
-        echo "Cannot support ${pipeline} with ${database}, need the fine-tuned colbert model with ${database}"
-        exit 0
-    fi
 fi
 
 if [[ $rebuild = "1" ]]; then

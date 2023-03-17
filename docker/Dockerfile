@@ -18,7 +18,7 @@ RUN wget --no-check-certificate https://dl.xpdfreader.com/xpdf-tools-linux-4.04.
     tar -xvf xpdf-tools-linux-4.04.tar.gz && cp xpdf-tools-linux-4.04/bin64/pdftotext /usr/local/bin
 
 #clone the code repo
-RUN git clone https://github.com/intel/open-domain-question-and-answer.git
+RUN git clone --depth=1 https://github.com/intel/open-domain-question-and-answer.git
 WORKDIR /home/user/open-domain-question-and-answer
 RUN git submodule update --init --recursive
 
