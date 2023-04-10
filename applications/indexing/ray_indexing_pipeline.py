@@ -24,6 +24,7 @@ from haystack.nodes.base import BaseComponent, RootNode
 from haystack.pipelines.base import Pipeline
 from haystack.schema import Document, MultiLabel
 import importlib.util as iu
+import copy
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +82,12 @@ class RayIndexingPipeline(Pipeline):
 
             name = node_config["name"]
             component_type = component_definitions[name]["type"]
+            if 'path' in component_definitions[name].keys() :
+                spec = iu.spec_from_file_location("module.name", component_definitions[name]["path"])
+                loader = iu.module_from_spec(spec)
+                spec.loader.exec_module(loader)
+
+
             component_class = BaseComponent.get_subclass(component_type)
             is_actor = bool(component_definitions[name]["actor"])
 
@@ -185,6 +192,22 @@ class RayIndexingPipeline(Pipeline):
     def _get_run_node_signature(self, node_id: str):
         return inspect.signature(self.graph.nodes[node_id]["component"].remote).parameters.keys()
 
+    def eval(self) :
+        for component in self.pipeline_config["components"] :
+            if component['type'] in ["ElasticsearchDocumentStore", "FAISSDocumentStore"] :
+                component_params = copy.deepcopy(component["params"])
+                if component['type'] == "FAISSDocumentStore" :
+                    component_params = {}
+                    component_params['faiss_index_path'] = component['faiss_index_path']
+
+                print(f'componet_params= {component_params}')
+                document_store = BaseComponent._create_instance(
+                    component_type=component['type'], component_params=component_params, name=component['name']
+                )
+
+                documents_count = document_store.get_document_count()
+                print(f'documents_count = {documents_count}')
+
 
     def run(  # type: ignore
         self,
@@ -222,13 +245,19 @@ class RayIndexingPipeline(Pipeline):
         next_nodes = self.get_next_nodes(node_id, stream_id=None)
         if len(next_nodes) > 0 :
             node_id = next_nodes[0]
-            if self.graph.nodes[node_id]["component_type"] == 'Dataset':
-                generator = self.graph.nodes[node_id]["component"].ray_dataset_generator()
+            component_type = self.graph.nodes[node_id]["component_type"]
+            component_class = BaseComponent.get_subclass(component_type)
+            print(f"component_type = {component_type}, parent_name = {component_class.__base__.__name__}")
+            if component_class.__base__.__name__ == "Dataset" :
+                kwargs = {}
+                self.graph.nodes[node_id]["component"]._dispatch_run(**kwargs)
+                generator = self.graph.nodes[node_id]["component"].dataset_batched_generator()
                 dataset_node = node_id
                 for dataset in generator:
                     ancestor_type = self.graph.nodes[dataset_node]["component_type"]
                     next_nodes = self.get_next_nodes(dataset_node, stream_id=None)
-                    output = dataset
+                    output = ray.data.from_items(dataset)
+                    print(output)
                     while len(next_nodes) == 1 :
                         node_id = next_nodes[0]
                         component_type = self.graph.nodes[node_id]["component_type"]
@@ -254,9 +283,9 @@ class RayIndexingPipeline(Pipeline):
                             output = output.map_batches(_RayDeploymentWrapper, compute=ActorPoolStrategy(1, num_actors), num_cpus=num_cpus, batch_size=batch_size,
                                                 fn_kwargs=input_kwargs, fn_constructor_kwargs=fn_constructor_kwargs)
 
-                            logger.info(output)
+                            logger.debug(output)
                         else:
-                            for batch in output.iter_batches():
+                            for batch in output.iter_batches(batch_size=10000):
                                 kwargs= {'documents': batch, 'root_node':'File'}
                                 self.graph.nodes[node_id]["component"]._dispatch_run(**kwargs)
                             if component_type == 'FAISSDocumentStore':
@@ -274,6 +303,7 @@ class RayIndexingPipeline(Pipeline):
             else:
                 raise PipelineError("Cannot run a pipeline with no Dataset node.")
 
+        self.eval()
         return output
 
 
@@ -313,11 +343,12 @@ class _RayDeploymentWrapper:
         """
         Ray calls this method which is then re-directed to the corresponding component's run().
         """
-        ancestor_type = kwargs.get("ancestor_type") or {}
+        ancestor_type = kwargs.get("ancestor_type") or ""
         if ancestor_type == "Dataset":
             kwargs['file_paths'] = data[0]
         else:
             kwargs['documents'] = data[0]
+        
         
         try:
             docs, _ = self.node._dispatch_run(**kwargs)
@@ -327,6 +358,7 @@ class _RayDeploymentWrapper:
                 return []
         except Exception as err:
             logger.error(f"exception: {err=}, {type(err)=}")
+            return [] 
 
     @staticmethod
     def load_from_pipeline_config(pipeline_config: dict, component_name: str):

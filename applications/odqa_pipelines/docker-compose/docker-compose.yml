@@ -9,36 +9,25 @@ services:
         - https_proxy=$HTTPS_PROXY
         - no_proxy=$NO_PROXY
     image: "intel/ai-workflows:odqa-haystack-api"
-    # Mount custom Pipeline YAML and custom Components.
-    # volumes:
-    #   - ./rest_api/pipeline:/home/user/rest_api/pipeline
     ports:
       - 8000:8000
     restart: on-failure
     #cpuset: "0"
-    volumes:
-      - $HOST_SOURCE:/home/user/data
+    # Mount custom Pipeline YAML and custom Components.
+    #volumes:
+    #  - $CUSTOMER_DIR:/home/user/data
     environment:
-      # See rest_api/pipeline/pipelines.haystack-pipeline.yml for configurations of Search & Indexing Pipeline.
       - DOCUMENTSTORE_PARAMS_HOST=elasticsearch
       - DOCUMENTSTORE_PARAMS_PORT=9200
-      #- PIPELINE_YAML_PATH=/home/user/rest_api/pipeline/pipelines.haystack-EmbeddingRetriever-pipeline.yml
-      #- PIPELINE_YAML_PATH=/home/user/rest_api/pipeline/pipelines.haystack-pipeline.yml
+      # See rest_api/pipeline/pipelines.haystack-pipeline.yml for configurations of Search & Indexing Pipeline.
       - PIPELINE_YAML_PATH=$PIPELINE_PATH
       - QUERY_PIPELINE_NAME=$PIPELINE_NAME
-      - INDEX_NAME=$INDEX_NAME
       - CONCURRENT_REQUEST_PER_WORKER=48
       - http_proxy=$HTTP_PROXY
       - https_proxy=$HTTPS_PROXY
       - no_proxy=$NO_PROXY
-      #- ONEDNN_VERBOSE=1
       - KMP_BLOCKTIME=20
       - MKL_ENABLE_INSTRUCTIONS=AVX512_E1
-        #- LD_PRELOAD=/usr/local/lib/libiomp5.so
-        #- KMP_AFFINITY=granularity=fine,verbose,compact,1,0
-      #- MKL_VERBOSE=1
-      #- MKL_NUM_THREADS=48
-      #- OMP_NUM_THREADS=48
       - COLBERT_OPT=$COLBERT_OPT
       - ENABLE_IPEX=$ENABLE_IPEX
       - IPEX_BF16=$IPEX_BF16
@@ -51,12 +40,8 @@ services:
     command: "/bin/bash -c 'sleep 10 && gunicorn rest_api.application:app -b 0.0.0.0 -k uvicorn.workers.UvicornWorker --workers 1 --timeout 600'"
   elasticsearch:
     # This will start an empty elasticsearch instance (so you have to add your documents yourself)
-    #image: "elasticsearch:7.9.2"
-    #image: "elasticsearch:8.1.2"
-    #image: "stackoverflow-es:latest"
     # If you want a demo image instead that is "ready-to-query" with some indexed articles
     # about countries and capital cities from Wikipedia:
-    #image: "dingke1980/elasticsearch-stack-overflow:1.0"
     #image: "deepset/elasticsearch-countries-and-capitals"
     image: $ELASTICSEARCH_IMG
     ports:
@@ -65,7 +50,8 @@ services:
     environment:
       - discovery.type=single-node
       - ES_JAVA_OPTS=-Xmx4g -Xms4g
-
+    volumes:
+      - $DATA_DIR:/usr/share/elasticsearch/data
   ui:
     build:
       context: ../../../ui
@@ -79,17 +65,17 @@ services:
     ports:
       - 8501:8501
     restart: on-failure
-    #volumes:
-    #  - $HOST_SOURCE:/home/user/data
+    volumes:
+      - $UI_CONFIG_DIR:/home/user/data/
     environment:
+      - PIPELINE_PATH=$PIPELINE_PATH
       - API_ENDPOINT=http://haystack-api:8000
       #- API_ENDPOINT=http://localhost:8000
-      - EVAL_FILE=ui/eval_labels_example.csv
       # The value fot the following variables will be read from the host, if present.
       # They can also be temporarily set for docker-compose, for example:
       # DISABLE_FILE_UPLOAD=1 DEFAULT_DOCS_FROM_RETRIEVER=5 docker-compose up
-      - DISABLE_FILE_UPLOAD
+      - DISABLE_FILE_UPLOAD=True
       - DEFAULT_QUESTION_AT_STARTUP
       - DEFAULT_DOCS_FROM_RETRIEVER
       - DEFAULT_NUMBER_OF_ANSWERS
-    command: "/bin/bash -c 'sleep 15 && python -m streamlit run ui/webapp.py $DATASET $MODE'"
+    command: "/bin/bash -c 'sleep 15 && python -m streamlit run ui/webapp.py'"

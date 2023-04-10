@@ -1,0 +1,47 @@
+version: 1.12.2
+extras: ray
+components:    # define all the building-blocks for Pipeline
+  - name: DocumentStore
+    type: ElasticsearchDocumentStore
+    actor: True
+    params:
+      host: $host_name #hostname or host IP of head node
+      index: document
+      embedding_field: question_emb
+      embedding_dim: 768
+      excluded_meta_data: ["question_emb"]
+  
+  - name: Retriever
+    type: EmbeddingRetriever
+    actor: True
+    params:
+      document_store: DocumentStore    # params can reference other components defined in the YAML
+      embedding_model: deepset/sentence_bert
+      batch_size: 256
+
+  - name: Dataset
+    type: MarcoDataset
+    path: /home/user/workspace/marco_dataset.py
+    actor: False
+    params:
+      file: /home/user/dataset/train_v2.1.json
+      batch_size: 200000
+
+
+pipelines:
+  - name: indexing
+    nodes:
+      - name: Dataset
+        inputs: [File]
+      - name: Retriever
+        inputs: [Dataset]
+        serve_deployment_kwargs:
+            num_replicas: 128  # number of replicas to create on the Ray cluster
+            batch_size: 16
+            num_cpus: 2
+      - name: DocumentStore
+        inputs: [Retriever]
+        serve_deployment_kwargs:
+            num_replicas: 10  # number of replicas to create on the Ray cluster
+            batch_size: 2000
+            num_cpus: 8

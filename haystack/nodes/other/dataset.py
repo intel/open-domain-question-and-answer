@@ -1,41 +1,44 @@
-from typing import List, Union, Dict
-
-from tqdm.auto import tqdm
-import os
-from haystack.errors import HaystackError
-from haystack.schema import Document, Answer, Span
+from typing import List, Union, Optional
+from abc import abstractmethod
+from haystack.schema import Document
 from haystack.nodes.base import BaseComponent
-from ray.data import from_items
+import ray,os
 
 class Dataset(BaseComponent):
     """
-    This Node is used to convert retrieved documents into predicted answers format.
-    It is useful for situations where you are calling a Retriever only pipeline via REST API.
+    This Node is used to convert dataset into haystack Documents or files path format.
+    It is useful for integrated the different dataset into haystack indexing pipeline.
+    It uses the ray distributed processing for the dataset. 
     This ensures that your output is in a compatible format.
-
-    :param progress_bar: Whether to show a progress bar
     """
 
     outgoing_edges = 1
 
-    def __init__(self, path: str, progress_bar: bool = True):
+    def __init__(self, batch_size: Optional[int]):
         super().__init__()
-        self.progress_bar = progress_bar
-        self.path = path
+        self.dataset = None
+        self.batch_size = batch_size
 
-    def run(self, query: str, documents: List[Document]):  # type: ignore
+    @abstractmethod
+    def convert(self) -> ray.data.Dataset:
+        """
+        Convert a dataset to ray.data.Dataset of Haystack Documents or files path.
+        """
         pass
+ 
+    def run(self):  # type: ignore
+        # conversion from dataset-> Documents or files path
+        self.dataset = self.convert()
+        enable_sample = os.getenv('ENABLE_SAMPLING_LIMIT', default="0")
+        if enable_sample == "1" :
+            self.dataset = self.dataset.limit(500)
+        return {}, "output_1"
 
-    def run_batch(self, queries: List[str], documents: Union[List[Document], List[List[Document]]]):  # type: ignore
-        pass
+    def run_batch(self):  # type: ignore
+        return self.run()
 
-    def ray_dataset_generator(self) :
-        dataset_dirs = os.listdir(self.path)
-        dataset_dirs = [ self.path + '/' + x   for x in dataset_dirs if os.path.isdir( self.path + x ) ]
-        if len(dataset_dirs) == 0 :
-            dataset_dirs = [self.path]
-        for dataset_dir in dataset_dirs :
-            files = os.listdir(dataset_dir)
-            files = [ dataset_dir + '/' + x   for x in os.listdir(dataset_dir) ]
-            yield from_items(files)
-
+    def dataset_batched_generator(self) :
+      """
+      Generator to generate the batched haystack Documents or batched files path
+      """
+      return self.dataset.iter_batches(batch_size=self.batch_size)

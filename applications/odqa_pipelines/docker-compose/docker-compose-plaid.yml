@@ -2,7 +2,7 @@ version: "3"
 services:
   haystack-api:
     build:
-      context: ../../../docker/
+      context: ../../../docker
       dockerfile: Dockerfile
       args:
         - http_proxy=$HTTP_PROXY
@@ -17,12 +17,10 @@ services:
       - 8000:8000
     restart: on-failure
     volumes:
-      - $HOST_SOURCE:/home/user/data
+      - $CUSTOMER_DIR:/home/user/data
       - $CHECKPOINT_PATH:/home/user/model
     environment:
       # See rest_api/pipeline/pipelines.haystack-pipeline.yml for configurations of Search & Indexing Pipeline.
-      #- PIPELINE_YAML_PATH=/home/user/rest_api/pipeline/pipelines.haystack-EmbeddingRetriever-pipeline.yml
-      #- PIPELINE_YAML_PATH=/home/user/rest_api/pipeline/pipelines.haystack-pipeline.yml
       - PIPELINE_YAML_PATH=$PIPELINE_PATH
       - QUERY_PIPELINE_NAME=$PIPELINE_NAME
       - INDEX_NAME=$INDEX_NAME
@@ -30,14 +28,8 @@ services:
       - http_proxy=$HTTP_PROXY
       - https_proxy=$HTTPS_PROXY
       - no_proxy=$NO_PROXY
-      #- ONEDNN_VERBOSE=1
       - KMP_BLOCKTIME=20
       - MKL_ENABLE_INSTRUCTIONS=AVX512_E1
-        #- LD_PRELOAD=/usr/local/lib/libiomp5.so
-        #- KMP_AFFINITY=granularity=fine,verbose,compact,1,0
-      #- MKL_VERBOSE=1
-      #- MKL_NUM_THREADS=48
-      #- OMP_NUM_THREADS=48
       - ENABLE_IPEX=$ENABLE_IPEX
       - IPEX_BF16=$IPEX_BF16
       - CHECKPOINT_PATH=$CHECKPOINT_PATH
@@ -58,17 +50,18 @@ services:
     ports:
       - 8501:8501
     restart: on-failure
-    #volumes:
-    #  - $HOST_SOURCE:/home/user/data
+    volumes:
+      - $UI_CONFIG_DIR:/home/user/data/
     environment:
       - API_ENDPOINT=http://haystack-api:8000
       #- API_ENDPOINT=http://localhost:8000
       - EVAL_FILE=ui/eval_labels_example.csv
+      - PIPELINE_PATH=$PIPELINE_PATH
       # The value fot the following variables will be read from the host, if present.
       # They can also be temporarily set for docker-compose, for example:
       # DISABLE_FILE_UPLOAD=1 DEFAULT_DOCS_FROM_RETRIEVER=5 docker-compose up
-      - DISABLE_FILE_UPLOAD
+      - DISABLE_FILE_UPLOAD=True
       - DEFAULT_QUESTION_AT_STARTUP
       - DEFAULT_DOCS_FROM_RETRIEVER
       - DEFAULT_NUMBER_OF_ANSWERS
-    command: "/bin/bash -c 'sleep 15 && python -m streamlit run ui/webapp.py $DATASET $MODE'"
+    command: "/bin/bash -c 'sleep 15 && python -m streamlit run ui/webapp.py'"

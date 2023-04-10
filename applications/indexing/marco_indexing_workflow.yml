@@ -1,0 +1,39 @@
+nodes:
+  - node: $host_name $hostname or IP address of head node
+    type: head
+    cores: 0-87
+    image: intel/ai-workflows:odqa-haystack-api
+    dataset_dir: /home/liukaixu/ws/Dataset/MACRO/QA
+    customer_dir: /home/yuanwu/data
+    workspace_dir: ./marco_indexing
+
+  - node: $host_name #hostname or IP address of worker node
+    type: worker
+    image: intel/ai-workflows:odqa-haystack-api
+    cores: 0-95 
+    user: $user         #configure the user of worker node for remote access 
+    password: $password #configure the password of worker node for remote access and sudo executing
+    dataset_dir: $dataset_dir
+    customer_dir: $customer_dir
+    workspace_dir: $workspace_dir
+ 
+ 
+pipelines:
+  - name: colbert_indexing_pipeline.yml
+    database:
+      type: elasticsearch
+      image: elasticsearch:7.9.2
+      cores: 88-95
+      data_dir: $data_dir_1
+  - name: emr_indexing_pipeline.yml
+    database:
+      type: elasticsearch
+      image: elasticsearch:7.9.2
+      cores: 88-95
+      data_dir: $data_dir_2
+  - name: faiss_indexing_pipeline.yml
+    database:     # The database containers will run in head node.
+      type: postgres
+      image: postgres:14.1-alpine
+      cores: 88-95
+      data_dir: $data_dir_3

@@ -1,0 +1,42 @@
+dataset:
+  name: StackOverflow
+  questions:
+    - question: "How to pass a function as a parameter in C?"
+    - question: "How to open a file in C++?"
+    - question: "How to convert a string to integer in C?"
+    - question: "How to get local IP-Address from an udp-socket (C/C++)?"
+
+pipelines:
+  - name: pipelines.haystack-EmbeddingRetriever-pipeline.yml
+    top_k_sliders:
+      - name: answer
+        desc: Max. number of answers
+        default_value: 3
+        keys:
+          - key: Retriever
+            param: top_k
+  
+  - name: pipelines_dpr.haystack-pipeline.yml
+    top_k_sliders:
+      - name: answer
+        desc: "Max. number of answers"
+        default_value: 3
+        keys:
+          - key: Retriever
+            param: top_k
+  
+  - name: pipelines.colbertRanker.haystack-pipeline.yml
+    top_k_sliders:
+      - name: answer
+        desc: "Max. number of answers"
+        default_value: 3
+        keys:
+          - key: Ranker
+            param: top_k
+      
+      - name: retriever
+        desc: "Max. number of documents from retriever"
+        default_value: 3
+        keys:
+          - key: Retriever
+            param: top_k

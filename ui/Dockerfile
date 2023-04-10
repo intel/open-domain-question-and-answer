@@ -7,7 +7,8 @@ COPY . /ui
 
 # install as a package
 RUN pip install --upgrade pip && \
-    pip install /ui/
+    pip install /ui/ \
+    pip install pyyaml
 
 WORKDIR /ui
 EXPOSE 8501

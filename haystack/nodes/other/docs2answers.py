@@ -74,7 +74,13 @@ class Docs2Answers(BaseComponent):
         else:
             # Regular docs
             answer = Answer(
-                answer="", type="other", score=doc.score, context=doc.content, document_id=doc.id, meta=doc.meta
+                answer=doc.content,
+                type="other",
+                score=doc.score,
+                context=doc.content,
+                document_id=doc.id,
+                meta=doc.meta,
+                offsets_in_context=[Span(start=0, end=len(doc.content))]
             )
 
         return answer

@@ -1,0 +1,1 @@
+pip install modin[all]==0.18.0

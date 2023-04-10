@@ -83,19 +83,32 @@ class ColBERTRanker(BaseRanker):
 
         return scores.values.sum(-1).cpu()
 
+    def _encode(self, arr: np.ndarray) -> str:
+        dt = np.dtype(arr.dtype)
+        dt = dt.newbyteorder(">")
+        arr_be = arr.astype(dt)
+        return base64.b64encode(arr_be.tobytes()).decode()
+
+    def run_indexing(self, documents: List[Document]):
+        for document in documents:
+            embedding = self._encode_multiple_docs(docs=[document.content], batch_size=1)
+            embedding = embedding[0].cpu().numpy()
+
+            document.to_dict()["meta"]["colbert_emb"] = self._encode(embedding)
+        output = {"documents": documents}
+        return output, "output_1"
+
     def predict(
         self, query: str, documents: List[Document], top_k: Optional[int] = None, to_cpu=True
     ):
         if top_k is None:
             top_k = self.top_k
-        start = time.time()
         Q = self._encode_query(query, batch_size=1, to_cpu=to_cpu)
-        time1 = time.time()
         if config.COLBERT_OPT == "False" :
             docs_str = [d.content for d in documents]
             docs = self._encode_multiple_docs(docs_str, batch_size=self.batch_size, to_cpu=to_cpu)
-            docs = torch.stack(list(docs[0]), dim=0)
-            time2 = time.time()
+            #docs = torch.stack(list(docs[0]), dim=0)
+            docs = docs[0]
             scores = self.calc_score(Q.permute(0, 2, 1), docs)
         else:
             docs_embedding = [d.to_dict()["meta"]["colbert_emb"] for d in documents]
@@ -104,9 +117,7 @@ class ColBERTRanker(BaseRanker):
                 docs_tensor=[t.to(dtype=torch.bfloat16) for t in docs_tensor]
 
             docs_tensor = torch.nn.utils.rnn.pad_sequence(docs_tensor, batch_first=True)
-            time2 = time.time()
             scores = self.calc_score(Q.permute(0, 2, 1), docs_tensor)
-        time3 = time.time()
         # rank documents according to scores
         sorted_scores_and_documents = sorted(
             zip(scores, documents),
@@ -119,7 +130,6 @@ class ColBERTRanker(BaseRanker):
             del doc.to_dict()["meta"]['colbert_emb']
             sorted_documents.append(doc)
 
-        time4 = time.time()
         return sorted_documents[:top_k]
 
     def predict_batch(
@@ -129,20 +139,3 @@ class ColBERTRanker(BaseRanker):
         batch_size: Optional[int] = None,
     ):
         raise NotImplementedError
-
-
-if __name__ == "__main__":
-    model_dir = "/nfs/pdx/home/pizsak/store/nosnap/colbert/colbert-so-train/train.py/2021-11-14_09.50.16/checkpoints/"
-    model_file = "colbert.dnn"
-    model_fullpath = model_dir + model_file
-    colbert_ranker = ColBERTRanker(
-        model_path=model_fullpath,
-        top_k=100,
-        amp=True,
-    )
-    q = "line break tag in html"
-    docs = [
-        "What is the line break tag in HTML?",
-        "how to do line breaks on web pages",
-        "what is a paragraph in html?",
-    ]
