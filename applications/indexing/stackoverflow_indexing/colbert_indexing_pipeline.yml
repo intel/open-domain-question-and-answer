@@ -1,0 +1,58 @@
+version: 1.12.2
+extras: ray
+components:    # define all the building-blocks for Pipeline
+  - name: DocumentStore
+    type: ElasticsearchDocumentStore
+    actor: True
+    params:
+      host: $host_name #hostname or host IP of head node
+      custom_mapping:
+        mappings:
+          properties:
+            content:
+              type: text
+            question_id:
+              type: integer
+            question-body:
+              type: text
+              index: false
+            answer:
+              type: text
+              index: false
+            colbert_emb:
+              type: binary
+              index: false
+  
+  - name: Ranker
+    type: ColBERTRanker
+    actor: True
+    params:
+      model_path: /home/user/data/colbertv2.0
+
+  - name: Dataset
+    type: StackoverflowDataset
+    path: /home/user/workspace/stackoverflow_dataset.py
+    actor: False
+    params:
+      question_file: /home/user/dataset/Questions.csv
+      answer_file: /home/user/dataset/Answers.csv
+      batch_size: 200000
+
+
+pipelines:
+  - name: indexing
+    nodes:
+      - name: Dataset
+        inputs: [File]
+      - name: Ranker
+        inputs: [Dataset]
+        serve_deployment_kwargs:
+            num_replicas: 80  # number of replicas to create on the Ray cluster
+            batch_size: 256
+            num_cpus: 2
+      - name: DocumentStore
+        inputs: [Ranker]
+        serve_deployment_kwargs:
+            num_replicas: 10  # number of replicas to create on the Ray cluster
+            batch_size: 2000
+            num_cpus: 8

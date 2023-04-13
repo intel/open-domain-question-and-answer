@@ -8,38 +8,26 @@ import pandas as pd
 import streamlit as st
 from annotated_text import annotation
 from markdown import markdown
+import random
 
-from ui.utils import haystack_is_ready, query, send_feedback, upload_doc, haystack_version, get_backlink
+from ui.utils import haystack_is_ready, query, send_feedback, upload_doc, haystack_version, get_backlink, load_config
 
 dataset = "game-of-throne"
-mode = 0
-if len(sys.argv) == 3:
-    dataset = sys.argv[1]
-    mode = int(sys.argv[2]) # 0: es+emb-retreiver, 1: faiss+dpr, 2: milvus+dpr
-pipeline_dict = {
-    'game-of-throne': 'extractive',
-    'covid-19': 'faq',
-    'stack-overflow': 'faq',
-    'marco': 'faq',
-    'wiki-dpr': 'faq'
-}
 
 default_q_dict = {
     "game-of-throne": "Who is the father of Arya Stark?",
     "covid-19": "Can covid-19 be spread through air?",
-    "stack-overflow": "python - how to get current date?",
-    "marco": "What's the deepest lake in the world?",
-    "wiki-dpr": "What is Machine Learning?"
 }
 
 # Adjust to a question that you would like users to see in the search bar when they load the UI:
 #DEFAULT_QUESTION_AT_STARTUP = os.getenv("DEFAULT_QUESTION_AT_STARTUP", "What's the capital of France?")
 DEFAULT_QUESTION_AT_STARTUP = default_q_dict[dataset]
-DEFAULT_ANSWER_AT_STARTUP = os.getenv("DEFAULT_ANSWER_AT_STARTUP", "Paris")
+DEFAULT_ANSWER_AT_STARTUP = os.getenv("DEFAULT_ANSWER_AT_STARTUP", "")
 
 # Sliders
 DEFAULT_DOCS_FROM_RETRIEVER = int(os.getenv("DEFAULT_DOCS_FROM_RETRIEVER", "3"))
 DEFAULT_NUMBER_OF_ANSWERS = int(os.getenv("DEFAULT_NUMBER_OF_ANSWERS", "3"))
+DEFAULT_CONFIG_FILE = "/home/user/data/config.yml"
 
 # Labels for the evaluation
 EVAL_LABELS = os.getenv("EVAL_FILE", str(Path(__file__).parent / "eval_labels_example.csv"))
@@ -47,6 +35,7 @@ EVAL_LABELS = os.getenv("EVAL_FILE", str(Path(__file__).parent / "eval_labels_ex
 # Whether the file upload should be enabled or not
 DISABLE_FILE_UPLOAD = bool(os.getenv("DISABLE_FILE_UPLOAD"))
 
+dataset_config, pipeline_config = load_config(DEFAULT_CONFIG_FILE)
 
 def set_state_if_absent(key, value):
     if key not in st.session_state:
@@ -54,6 +43,13 @@ def set_state_if_absent(key, value):
 
 
 def main():
+    global DEFAULT_QUESTION_AT_STARTUP
+    global DEFAULT_ANSWER_AT_STARTUP
+    if dataset_config != None:
+        dataset = dataset_config["name"]
+        DEFAULT_QUESTION_AT_STARTUP = dataset_config["questions"][0]["question"]
+        if "answer" in dataset_config["questions"][0].keys():
+            DEFAULT_ANSWER_AT_STARTUP = dataset_config["questions"][0]["answer"]
 
     st.set_page_config(page_title="Haystack Demo", page_icon="https://haystack.deepset.ai/img/HaystackIcon.png")
 
@@ -85,23 +81,41 @@ Ask any question on this topic and see if Haystack can find the correct answer t
     )
 
     # Sidebar
+    top_k_params = {}
     st.sidebar.header("Options")
-    top_k_reader = st.sidebar.slider(
-        "Max. number of answers",
-        min_value=1,
-        max_value=1000,
-        value=DEFAULT_NUMBER_OF_ANSWERS,
-        step=1,
-        on_change=reset_results,
-    )
-    top_k_retriever = st.sidebar.slider(
-        "Max. number of documents from retriever",
-        min_value=1,
-        max_value=1000,
-        value=DEFAULT_DOCS_FROM_RETRIEVER,
-        step=1,
-        on_change=reset_results,
-    )
+    if pipeline_config == None:
+        top_k_reader = st.sidebar.slider(
+            "Max. number of answers",
+            min_value=1,
+            max_value=1000,
+            value=DEFAULT_NUMBER_OF_ANSWERS,
+            step=1,
+            on_change=reset_results,
+        )
+
+        top_k_retriever = st.sidebar.slider(
+            "Max. number of documents from retriever",
+            min_value=1,
+            max_value=1000,
+            value=DEFAULT_DOCS_FROM_RETRIEVER,
+            step=1,
+            on_change=reset_results,
+        )
+        top_k_params = {"Retriever": {"top_k": top_k_retriever}, "Reader": {"top_k": top_k_reader}}
+    else :
+        for slider in pipeline_config["top_k_sliders"]:
+            top_k =  st.sidebar.slider(
+                slider["desc"],
+                min_value=1,
+                max_value=1000,
+                value=slider["default_value"],
+                step=1,
+                on_change=reset_results,
+            )
+            for key in slider["keys"] :
+                top_k_params.update({key["key"]: {key["param"]: top_k}})
+
+
     eval_mode = st.sidebar.checkbox("Evaluation mode")
     debug = st.sidebar.checkbox("Show debug info")
 
@@ -145,7 +159,6 @@ Ask any question on this topic and see if Haystack can find the correct answer t
         <hr />
         <h4>Built with <a href="https://www.deepset.ai/haystack">Haystack</a>{hs_version}</h4>
         <p>Get it on <a href="https://github.com/deepset-ai/haystack/">GitHub</a> &nbsp;&nbsp; - &nbsp;&nbsp; Read the <a href="https://haystack.deepset.ai/overview/intro">Docs</a></p>
-        <small>Data crawled from <a href="https://en.wikipedia.org/wiki/Category:Lists_of_countries_by_continent">Wikipedia</a> in November 2021.<br />See the <a href="https://creativecommons.org/licenses/by-sa/3.0/">License</a> (CC BY-SA 3.0).</small>
     </div>
     """,
         unsafe_allow_html=True,
@@ -156,14 +169,19 @@ Ask any question on this topic and see if Haystack can find the correct answer t
         df = pd.read_csv(EVAL_LABELS, sep=";")
     except Exception:
         st.error(
-            f"The eval file was not found. Please check the demo's [README](https://github.com/deepset-ai/haystack/tree/master/ui/README.md) for more information."
+            f"The eval file was not found. Please check the demo's [README](https://github.com/deepset-ai/haystack/tree/main/ui/README.md) for more information."
         )
         sys.exit(
-            f"The eval file was not found under `{EVAL_LABELS}`. Please check the README (https://github.com/deepset-ai/haystack/tree/master/ui/README.md) for more information."
+            f"The eval file was not found under `{EVAL_LABELS}`. Please check the README (https://github.com/deepset-ai/haystack/tree/main/ui/README.md) for more information."
         )
 
     # Search bar
-    question = st.text_input("", value=st.session_state.question, max_chars=100, on_change=reset_results)
+    question = st.text_input(
+        "",
+        value=st.session_state.question,
+        max_chars=100,
+        on_change=reset_results,
+    )
     col1, col2 = st.columns(2)
     col1.markdown("<style>.stButton button {width:100%;}</style>", unsafe_allow_html=True)
     col2.markdown("<style>.stButton button {width:100%;}</style>", unsafe_allow_html=True)
@@ -174,17 +192,40 @@ Ask any question on this topic and see if Haystack can find the correct answer t
     # Get next random question from the CSV
     if col2.button("Random question"):
         reset_results()
-        new_row = df.sample(1)
-        while (
-            new_row["Question Text"].values[0] == st.session_state.question
-        ):  # Avoid picking the same question twice (the change is not visible on the UI)
+        question_txt = ""
+        answer_txt = ""
+        if dataset_config == None :
             new_row = df.sample(1)
-        st.session_state.question = new_row["Question Text"].values[0]
-        st.session_state.answer = new_row["Answer"].values[0]
+            while (
+                new_row["Question Text"].values[0] == st.session_state.question
+            ):  # Avoid picking the same question twice (the change is not visible on the UI)
+                new_row = df.sample(1)
+            question_txt = new_row["Question Text"].values[0]
+            answer_txt = new_row["Answer"].values[0]
+        else :
+            index = random.randint(0, len(dataset_config["questions"])-1)
+            while (
+                dataset_config["questions"][index]["question"] == st.session_state.question
+            ):  # Avoid picking the same question twice (the change is not visible on the UI)
+                index = random.randint(0, len(dataset_config["questions"])-1)
+            
+            question_txt = dataset_config["questions"][index]["question"]
+            answer_txt = ""
+            if "answer" in dataset_config["questions"][index].keys():
+                answer_txt = dataset_config["questions"][index]["answer"]
+
+        st.session_state.question = question_txt
+        st.session_state.answer = answer_txt
         st.session_state.random_question_requested = True
         # Re-runs the script setting the random question as the textbox value
         # Unfortunately necessary as the Random Question button is _below_ the textbox
-        raise st.scriptrunner.script_runner.RerunException(st.scriptrunner.script_requests.RerunData(None))
+        if hasattr(st, "scriptrunner"):
+            raise st.scriptrunner.script_runner.RerunException(
+                st.scriptrunner.script_requests.RerunData(widget_states=None)
+            )
+        raise st.runtime.scriptrunner.script_runner.RerunException(
+            st.runtime.scriptrunner.script_requests.RerunData(widget_states=None)
+        )
     st.session_state.random_question_requested = False
 
     run_query = (
@@ -209,9 +250,7 @@ Ask any question on this topic and see if Haystack can find the correct answer t
             "Check out the docs: https://haystack.deepset.ai/usage/optimization "
         ):
             try:
-                st.session_state.results, st.session_state.raw_json = query(
-                    question, top_k_reader=top_k_reader, top_k_retriever=top_k_retriever, pipeline=pipeline_dict[dataset], mode=mode
-                )
+                st.session_state.results, st.session_state.raw_json = query(question, top_k_params=top_k_params)
             except JSONDecodeError as je:
                 st.error("👓 &nbsp;&nbsp; An error occurred reading the results. Is the document store working?")
                 return

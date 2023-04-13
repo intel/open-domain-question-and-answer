@@ -7,6 +7,7 @@ from time import perf_counter
 
 from haystack.schema import Document
 from haystack.nodes.base import BaseComponent
+from haystack.errors import HaystackError, PipelineError
 
 
 logger = logging.getLogger(__name__)
@@ -17,6 +18,8 @@ class BaseRanker(BaseComponent):
     outgoing_edges = 1
     query_count = 0
     query_time = 0
+    index_count = 0
+    index_time = 0.0
 
     @abstractmethod
     def predict(self, query: str, documents: List[Document], top_k: Optional[int] = None):
@@ -32,37 +35,86 @@ class BaseRanker(BaseComponent):
     ) -> Union[List[Document], List[List[Document]]]:
         pass
 
-    def run(self, query: str, documents: List[Document], top_k: Optional[int] = None):  # type: ignore
-        self.query_count += 1
-        if documents:
-            predict = self.timing(self.predict, "query_time")
-            results = predict(query=query, documents=documents, top_k=top_k)
+    def run(
+        self,
+        root_node: str,
+        query: Optional[str] = None,
+        documents: Optional[List[Document]] = None,
+        top_k: Optional[int] = None):  # type: ignore
+
+        if root_node == "Query":
+            if query is None:
+                raise HaystackError(
+                    "Must provide a 'query' parameter for rankers in pipelines where Query is the root node."
+                )
+            if not isinstance(query, str):
+                logger.error(
+                    "The ranker received an unusual query: '%s' This query is likely to produce garbage output.",
+                    query,
+                )
+
+            self.query_count += 1
+            if documents:
+                predict = self.timing(self.predict, "query_time")
+                results = predict(query=query, documents=documents, top_k=top_k)
+            else:
+                results = []
+
+            document_ids = [doc.id for doc in results]
+            logger.debug("Retrieved documents with IDs: %s", document_ids)
+            output = {"documents": results}
+            stream = "output_1" 
+
+        elif root_node == "File":
+            self.index_count += len(documents) if documents else 0
+            run_indexing = self.timing(self.run_indexing, "index_time")
+            output, stream = run_indexing(documents=documents)
+
         else:
-            results = []
+            raise PipelineError(f"Invalid root_node '{root_node}'.")
 
-        document_ids = [doc.id for doc in results]
-        logger.debug("Retrieved documents with IDs: %s", document_ids)
-        output = {"documents": results}
-
-        return output, "output_1"
+        return output, stream
 
     def run_batch(  # type: ignore
         self,
+        root_node: str,
         queries: List[str],
         documents: Union[List[Document], List[List[Document]]],
         top_k: Optional[int] = None,
         batch_size: Optional[int] = None,
     ):
-        self.query_count = +len(queries)
-        predict_batch = self.timing(self.predict_batch, "query_time")
-        results = predict_batch(queries=queries, documents=documents, top_k=top_k, batch_size=batch_size)
+        if root_node == "Query":
+            if queries is None:
+                raise HaystackError(
+                    "Must provide a 'queries' parameter for retrievers in pipelines where Query is the root node."
+                )
+            if not all(isinstance(query, str) for query in queries):
+                logger.error(
+                    "The retriever received an unusual list of queries: '%s' Some of these queries are likely to produce garbage output.",
+                    queries,
+                )
+            self.query_count = +len(queries)
+            predict_batch = self.timing(self.predict_batch, "query_time")
+            results = predict_batch(queries=queries, documents=documents, top_k=top_k, batch_size=batch_size)
 
-        for doc_list in results:
-            document_ids = [doc.id for doc in doc_list]
-            logger.debug("Ranked documents with IDs: %s", document_ids)
+            for doc_list in results:
+                document_ids = [doc.id for doc in doc_list]
+                logger.debug("Ranked documents with IDs: %s", document_ids)
 
-        output = {"documents": results}
+            output = {"documents": results}
+            stream = "output_1"
 
+        elif root_node == "File":
+            self.index_count += len(documents) if documents else 0
+            run_indexing = self.timing(self.run_indexing, "index_time")
+            output, stream = run_indexing(documents=documents)
+
+        else:
+            raise PipelineError(f"Invalid root_node '{root_node}'.")
+        return output, stream
+
+    def run_indexing(self, documents: List[Document]):
+        output = {"documents": documents}
         return output, "output_1"
 
     def timing(self, fn, attr_name):
@@ -83,6 +135,12 @@ class BaseRanker(BaseComponent):
     def print_time(self):
         print("Ranker (Speed)")
         print("---------------")
+        if not self.index_count:
+            print("No indexing performed via Ranker.run()")
+        else:
+            print(f"Documents indexed: {self.index_count}")
+            print(f"Index time: {self.index_time}s")
+            print(f"{self.query_time / self.query_count} seconds per document")
         if not self.query_count:
             print("No querying performed via Retriever.run()")
         else:

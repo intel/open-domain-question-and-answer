@@ -1,0 +1,45 @@
+dataset:
+  name: Marco
+  questions:
+    - question: "What's the deepest lake in the world?"
+      answer: "Lake Bajkal"
+    - question: "Which Chinese city is the largest?"
+      answer: "Shanghai"
+    - question: "What's the longest river of Europe?"
+      answer: "The Volga"
+    - question: "What's the tallest mountain in Africa?"
+      answer: "Mount Kilimanjaro"
+pipelines:
+  - name: pipelines.haystack-EmbeddingRetriever-pipeline.yml
+    top_k_sliders:
+      - name: answer
+        desc: Max. number of answers
+        default_value: 3
+        keys:
+          - key: Retriever
+            param: top_k
+  
+  - name: pipelines_dpr.haystack-pipeline.yml
+    top_k_sliders:
+      - name: answer
+        desc: "Max. number of answers"
+        default_value: 3
+        keys:
+          - key: Retriever
+            param: top_k
+  
+  - name: pipelines.colbertRanker.haystack-pipeline.yml
+    top_k_sliders:
+      - name: answer
+        desc: "Max. number of answers"
+        default_value: 3
+        keys:
+          - key: Ranker
+            param: top_k
+      
+      - name: retriever
+        desc: "Max. number of documents from retriever"
+        default_value: 3
+        keys:
+          - key: Retriever
+            param: top_k

@@ -1,5 +1,6 @@
-from typing import Dict, Any, Mapping
+from typing import Dict, Any
 
+from collections.abc import Mapping
 import logging
 import time
 import json
@@ -14,10 +15,6 @@ from haystack.telemetry import send_event_if_public_demo
 
 from rest_api.utils import get_app, get_pipelines
 from rest_api.config import LOG_LEVEL
-from rest_api.config import INDEX_NAME
-from rest_api.config import CHECKPOINT_PATH
-from rest_api.config import QUERY_PIPELINE_NAME
-from rest_api.config import QUERY_PIPELINE_NAME
 from rest_api.schema import QueryRequest, QueryResponse
 
 
@@ -60,54 +57,9 @@ def query(request: QueryRequest):
     This endpoint receives the question as a string and allows the requester to set
     additional parameters that will be passed on to the Haystack pipeline.
     """
-
     with concurrency_limiter.run():
-        if QUERY_PIPELINE_NAME != 'esds_bm25r_colbert' : 
-            result = _process_request(query_pipeline, request)
-        else : 
-            result = _process_request_bm25_colbert(query_pipeline, request)
-#        p = QAPipe(request)
-#        result = p.get_pipe().process_request(request)
+        result = _process_request(query_pipeline, request)
         return result
-
-def _process_request_bm25_colbert(pipeline, request) -> QueryResponse:
-    retriever_topk = request.params['Retriever']['top_k']
-    ranker_topk = request.params['Ranker']['top_k']
-
-    logger.info(f"retriever topk={retriever_topk}")
-    logger.info(f"ranker topk={ranker_topk}")
-    with open('out.log', 'a') as f:
-        f.write('received request = %s.\n' % (request))
-
-    # bm25+colbert specific params
-    #params_hybrid = {"Retriever": {"top_k": retriever_topk, "index": INDEX_NAME}, "Ranker": {"top_k": ranker_topk}}
-    logger.info(f"params={request.params}")
-    result = pipeline.run(query=request.query, params=request.params, debug=request.debug)
-
-    for ans in result['answers'][:ranker_topk]:
-        # this is to walk-around the Float32 cannot be serialized issue...
-        ans.score = float(ans.score)
-        # this is to walk-around offsets_in_document as None
-        ans.offsets_in_document = ans.offsets_in_document or ans.offsets_in_context
-        # return context if answer is null
-        ans.answer = ans.answer or ans.context
-        # set the right span
-        ans.offsets_in_document = [Span(0, len(ans.answer))]
-        ans.offsets_in_context = [Span(0, len(ans.context))]
-
-    # convert embedding from ndarray to list according to schema
-    for doc in result['documents'][:ranker_topk]:
-        doc.embedding = list(doc.embedding) if doc.embedding else None
-
-    # only return topk results
-    result['answers'] = result['answers'][:ranker_topk]
-    result['documents'] = result['documents'][:ranker_topk]
-
-    #logger.info(
-    #    json.dumps({"request": request, "response": result, "time": f"{(end_time - start_time):.2f}"}, default=str))
-
-    return result
-
 
 
 @send_event_if_public_demo
@@ -184,119 +136,3 @@ def _format_filters(filters):
 
             new_filters[key] = values
     return new_filters
-
-'''
-class Singleton(type):
-    _instances = {}
-
-    def __call__(cls, *args, **kwargs):
-        if cls not in cls._instances:
-            cls._instances[cls] = super(Singleton, cls).__call__(*args, **kwargs)
-        return cls._instances[cls]
-
-
-class QAPipeExtractive(metaclass=Singleton):
-    def __init__(self):
-        # at this moment PIPELINE is needed by other module, so it's globally created...to-be-fixed
-        # self.p = Pipeline.load_from_yaml(Path(PIPELINE_YAML_PATH), pipeline_name=QUERY_PIPELINE_NAME)
-        self.p = PIPELINE
-        logger.info(f"Loaded singleton pipeline nodes: {self.p.graph.nodes.keys()}")
-
-    def process_request(self, request) -> QueryResponse:
-        return _process_request(self.p, request)
-
-
-class QAPipeFaq(metaclass=Singleton):
-    def __init__(self, mode=0):
-        from haystack.nodes.retriever.dense import EmbeddingRetriever, DensePassageRetriever
-        from haystack.document_stores.elasticsearch import ElasticsearchDocumentStore
-        from haystack.document_stores import FAISSDocumentStore
-        from haystack.pipelines import FAQPipeline
-
-        self.mode = mode
-        self.faiss_ds_idx = 'faiss'
-
-        if self.mode == 0:  # es+embedding_retriever
-            logger.info('es+emb FAQPipeline is selected.')
-            # assuming document store already has the faq documents indexed.
-            document_store = ElasticsearchDocumentStore(host="elasticsearch",
-                                                        embedding_field="question_emb",
-                                                        embedding_dim=768,
-                                                        excluded_meta_data=["question_emb"])
-            document_store.debug = True
-            retriever = EmbeddingRetriever(document_store=document_store, embedding_model="deepset/sentence_bert")
-            retriever.debug = True
-            self.p = FAQPipeline(retriever=retriever).pipeline
-        elif self.mode == 1:  # faiss+dpr
-            logger.info('faiss+dpr FAQPipeline is selected.')
-            """ below is only for creating new faiss docstore
-            document_store = FAISSDocumentStore(sql_url='sqlite:///faiss-so.db',
-                                                faiss_index_factory_str="HNSW",
-                                                return_embedding=True,
-                                                index=self.faiss_ds_idx)
-            """
-            document_store = FAISSDocumentStore.load('faiss-index-so.faiss')
-
-            retriever = DensePassageRetriever(document_store=document_store,
-                                              query_embedding_model="facebook/dpr-question_encoder-single-nq-base",
-                                              passage_embedding_model="facebook/dpr-ctx_encoder-single-nq-base",
-                                              max_seq_len_query=64,
-                                              max_seq_len_passage=256,
-                                              batch_size=16,
-                                              embed_title=True,
-                                              use_fast_tokenizers=True)
-            self.p = FAQPipeline(retriever=retriever).pipeline
-        elif self.mode == 2:  # milvus+dpr
-            pass
-        elif self.mode == 3: # bm25+colbert
-            logger.info('bm25+colbert FAQPipeline is selected.')
-            self.p = self.colbert_pipeline(self.init_doc_store())
-
-        logger.info(f"Loaded singleton pipeline nodes: {self.p.graph.nodes.keys()}")
-
-    def process_request(self, request):
-        return _process_request(self.p, request) if self.mode != 3 else _process_request_bm25_colbert(self.p, request)
-
-    def init_doc_store(self):
-        from haystack.document_stores.elasticsearch import ElasticsearchDocumentStore
-        document_store = ElasticsearchDocumentStore(
-            host="elasticsearch", username="", password="")
-            #host="elasticsearch", username="", password="", index="stackoverflow_paraphrase")
-        return document_store
-
-    def init_bm25_retriever(self, document_store, top_k=1000):
-        from haystack.nodes.retriever.sparse import ElasticsearchRetriever
-        retriever = ElasticsearchRetriever(document_store=document_store, top_k=top_k)
-        return retriever
-
-    def colbert_pipeline(self, document_store, top_k=1000):
-        from haystack.nodes.ranker.colbert_modeling import ColBERTRanker
-        from haystack.nodes.other import Docs2Answers
-        model_fullpath = CHECKPOINT_PATH
-
-        retriever = self.init_bm25_retriever(document_store, top_k=top_k)
-        reranker = ColBERTRanker(
-            model_path=model_fullpath,
-            top_k=1000,
-            amp=True,
-            use_gpu=True,
-            batch_size=1024,
-        )
-        pipe = Pipeline()
-        pipe.add_node(component=retriever, name="Retriever", inputs=["Query"])
-        pipe.add_node(component=reranker, name="Ranker", inputs=["Retriever"])
-        pipe.add_node(component=Docs2Answers(), name="Docs2Answers", inputs=["Ranker"])
-        return pipe
-
-
-class QAPipe:
-    def __init__(self, request):
-        if request.pipeline == 'extractive':
-            self.p = QAPipeExtractive()
-        elif request.pipeline == 'faq':
-            self.p = QAPipeFaq(request.mode)
-
-    def get_pipe(self):
-        return self.p
-'''
-

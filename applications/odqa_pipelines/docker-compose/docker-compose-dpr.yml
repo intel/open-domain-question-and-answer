@@ -2,7 +2,7 @@ version: "3"
 services:
   haystack-api:
     build:
-      context: ../../../docker/
+      context: ../../../docker
       dockerfile: Dockerfile
       args:
         - http_proxy=$HTTP_PROXY
@@ -11,7 +11,7 @@ services:
     image: "intel/ai-workflows:odqa-haystack-api"
     # Mount custom Pipeline YAML and custom Components.
     volumes:
-      - $HOST_SOURCE:/home/user/data
+      - $CUSTOMER_DIR:/home/user/data
     ports:
       - 8000:8000
     restart: on-failure
@@ -40,10 +40,10 @@ services:
     ports:
       - 5432:5432
     restart: on-failure
+    environment:
+      - POSTGRES_HOST_AUTH_METHOD=$POSTGRES_HOST_AUTH_METHOD
     volumes:
-      - $HOST_SOURCE/db:/var/lib/postgresql/data
-    #environment:
-      #- discovery.type=single-node
+      - $DATA_DIR:/var/lib/postgresql/data
 
   ui:
     build:
@@ -57,14 +57,17 @@ services:
     ports:
       - 8501:8501
     restart: on-failure
+    volumes:
+      - $UI_CONFIG_DIR:/home/user/data/
     environment:
       - API_ENDPOINT=http://haystack-api:8000
       - EVAL_FILE=ui/eval_labels_example.csv
+      - PIPELINE_PATH=$PIPELINE_PATH
       # The value fot the following variables will be read from the host, if present.
       # They can also be temporarily set for docker-compose, for example:
       # DISABLE_FILE_UPLOAD=1 DEFAULT_DOCS_FROM_RETRIEVER=5 docker-compose up
-      - DISABLE_FILE_UPLOAD
+      - DISABLE_FILE_UPLOAD=True
       - DEFAULT_QUESTION_AT_STARTUP
       - DEFAULT_DOCS_FROM_RETRIEVER
       - DEFAULT_NUMBER_OF_ANSWERS
-    command: "/bin/bash -c 'sleep 15 && python -m streamlit run ui/webapp.py $DATASET $MODE'"
+    command: "/bin/bash -c 'sleep 15 && python -m streamlit run ui/webapp.py'"

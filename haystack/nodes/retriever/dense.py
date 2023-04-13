@@ -11,13 +11,12 @@ from tqdm.auto import tqdm
 
 import torch
 from torch.nn import DataParallel
-from torch.utils.data import DataLoader
 from torch.utils.data.sampler import SequentialSampler
 import pandas as pd
 from huggingface_hub import hf_hub_download
 from transformers import (
     AutoConfig,
-    AutoTokenizer,
+    AutoTokenizer, 
     AutoModel,
     DPRContextEncoderTokenizerFast,
     DPRQuestionEncoderTokenizerFast,
@@ -25,6 +24,14 @@ from transformers import (
     DPRQuestionEncoderTokenizer,
 )
 from datasets import Dataset
+from torch.utils.data import DataLoader
+
+# colbert related import
+import os
+# from colbert.evaluation.loaders import load_colbert, load_qrels, load_queries
+# from colbert.indexing.faiss import get_faiss_index_name
+# from colbert.modeling.inference import ModelInference
+# from colbert.ranking.rankers import Ranker
 
 from haystack.errors import HaystackError
 from haystack.schema import Document, FilterType
@@ -43,6 +50,7 @@ from haystack.modeling.data_handler.dataloader import NamedDataLoader
 from haystack.modeling.model.optimization import initialize_optimizer
 from haystack.modeling.training.base import Trainer
 from haystack.modeling.utils import initialize_device_settings
+from haystack import config
 
 
 logger = logging.getLogger(__name__)
@@ -221,7 +229,7 @@ class DensePassageRetriever(DenseRetriever):
                 do_lower_case=True,
                 use_fast=use_fast_tokenizers,
                 use_auth_token=use_auth_token,
-            )
+            ) 
             self.query_encoder = DPREncoder(
                 pretrained_model_name_or_path=query_embedding_model,
                 model_type="DPRQuestionEncoder",
@@ -565,9 +573,11 @@ class DensePassageRetriever(DenseRetriever):
     def _embed_queries_for_xml_model(self, queries: List[str]) -> List[np.ndarray]:
         tokenized_queries = self.query_tokenizer(queries, padding="max_length", return_tensors="pt",
                                  truncation=True, max_length = self.max_seq_len_query)
+
         self.query_encoder.eval()
         # using the [cls] token embedding as query embedding
         query_embeddings = self.query_encoder(**tokenized_queries).last_hidden_state[:,0,:]
+
         return query_embeddings.detach().numpy()
 
     def embed_queries(self, queries: List[str]) -> np.ndarray:

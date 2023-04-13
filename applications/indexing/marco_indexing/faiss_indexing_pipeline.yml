@@ -1,0 +1,46 @@
+version: 1.12.2
+extras: ray
+components:    # define all the building-blocks for Pipeline
+  
+  - name: DocumentStore
+    type: FAISSDocumentStore
+    faiss_index_path: /home/user/data/faiss-index-so.faiss
+    actor: False
+    params:
+      sql_url: postgresql://postgres:postgres@$host_name/haystack
+      faiss_index_factory_str: HNSW
+
+  - name: Retriever
+    type: DensePassageRetriever
+    actor: True
+    params:
+      query_embedding_model: "facebook/dpr-question_encoder-single-nq-base"
+      passage_embedding_model: "facebook/dpr-ctx_encoder-single-nq-base"
+      max_seq_len_query: 64
+      max_seq_len_passage: 256
+      batch_size: 16
+      embed_title: True
+      use_fast_tokenizers: True
+
+  - name: Dataset
+    type: MarcoDataset
+    path: /home/user/workspace/marco_dataset.py
+    actor: False
+    params:
+      file: /home/user/dataset/train_v2.1.json
+      batch_size: 200000
+
+
+pipelines:
+  - name: indexing
+    nodes:
+      - name: Dataset
+        inputs: [File]
+      - name: Retriever
+        inputs: [Dataset]
+        serve_deployment_kwargs:
+            num_replicas: 128  # number of replicas to create on the Ray cluster
+            batch_size: 256
+            num_cpus: 2
+      - name: DocumentStore
+        inputs: [Retriever]

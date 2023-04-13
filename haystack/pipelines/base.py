@@ -1825,8 +1825,8 @@ class Pipeline:
                 set(retriever.document_store for retriever in self.get_nodes_by_class(class_type=BaseRetriever))
             )
 
-        if len(matches) > 1:
-            raise Exception(f"Multiple Document Stores found in Pipeline: {matches}")
+        #if len(matches) > 1:
+        #    raise Exception(f"Multiple Document Stores found in Pipeline: {matches}")
         if len(matches) == 0:
             return None
         else:

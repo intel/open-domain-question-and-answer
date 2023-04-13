@@ -6,9 +6,10 @@ from time import sleep
 
 import requests
 import streamlit as st
-
+import yaml
 
 API_ENDPOINT = os.getenv("API_ENDPOINT", "http://localhost:8000")
+PIPELINE_PATH = os.getenv("PIPELINE_PATH", "")
 STATUS = "initialized"
 HS_VERSION = "hs_version"
 DOC_REQUEST = "query"
@@ -39,21 +40,17 @@ def haystack_version():
     return requests.get(url, timeout=0.1).json()["hs_version"]
 
 
-def query(query, filters={}, top_k_reader=5, top_k_retriever=5, pipeline='extractive', mode=0) -> Tuple[List[Dict[str, Any]], Dict[str, str]]:
+def query(query, filters={}, top_k_params = {}) -> Tuple[List[Dict[str, Any]], Dict[str, str]]:
     """
     Send a query to the REST API and parse the answer.
     Returns both a ready-to-use representation of the results and the raw JSON.
     """
 
     url = f"{API_ENDPOINT}/{DOC_REQUEST}"
-    if mode==3 :
-        logging.info("cobert selected!!!");
-        params = {"filters": filters, "Retriever": {"top_k": top_k_retriever}, "Ranker": {"top_k": top_k_reader}}
-    elif mode in [0,1,2]:
-        params = {"filters": filters, "Retriever": {"top_k": top_k_retriever}}
-    else :
-        params = {"filters": filters, "Retriever": {"top_k": top_k_retriever}, "Reader": {"top_k": top_k_reader}}
-    req = {"query": query, "params": params, "pipeline": pipeline, "mode": mode}
+    params = {"filters": filters}
+    params.update(top_k_params)
+    print(f"params = {params}")
+    req = {"query": query, "params": params}
     response_raw = requests.post(url, json=req)
 
     if response_raw.status_code >= 400 and response_raw.status_code != 503:
@@ -119,6 +116,26 @@ def upload_doc(file):
     files = [("files", file)]
     response = requests.post(url, files=files).json()
     return response
+
+def load_config(file):
+    dataset_config = None
+    pipeline_config = None
+    with open(file, 'r', encoding='utf-8') as config_file:
+        content = config_file.read()
+        config = yaml.safe_load(content)
+        if PIPELINE_PATH != "":
+            pipeline_name = PIPELINE_PATH.split("/")[-1]
+            print(f'pipeline_name={pipeline_name}')
+            for pipeline in config["pipelines"] :
+                if pipeline["name"] == pipeline_name :
+                    pipeline_config = pipeline
+        else:
+            return None, None
+        dataset_config = config["dataset"]
+
+    return dataset_config, pipeline_config
+
+
 
 
 def get_backlink(result) -> Tuple[Optional[str], Optional[str]]:

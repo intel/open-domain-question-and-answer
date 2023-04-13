@@ -178,6 +178,7 @@ ray = [
   "ray>=1.9.1,<2.3.0; platform_system != 'Windows'",
   "ray>=1.9.1,<2,!=1.12.0; platform_system == 'Windows'",  # Avoid 1.12.0 due to https://github.com/ray-project/ray/issues/24169 (fails on windows)
   "aiorwlock>=1.3.0,<2",
+  "gpustat==1.0.0",
 ]
 colab = [
   "pillow<=9.0.0",
