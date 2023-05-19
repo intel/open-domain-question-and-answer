@@ -353,7 +353,7 @@ class BiAdaptiveModel(nn.Module):
             if self.use_xml_model:
                 output1 = self.language_model1(
                     input_ids=query_input_ids, token_type_ids=query_segment_ids, attention_mask=query_attention_mask
-                ).last_hidden_state
+                ).last_hidden_state  
                 pooled_output[0] = output1[:,0,:]
             else:
                 pooled_output1, _ = self.language_model1(
@@ -371,13 +371,13 @@ class BiAdaptiveModel(nn.Module):
             if self.use_xml_model:
                 output2 = self.language_model2(
                     input_ids=passage_input_ids, token_type_ids=passage_segment_ids, attention_mask=passage_attention_mask
-                ).last_hidden_state
+                ).last_hidden_state    
                 pooled_output[1] = output2[:,0,:]
             else:
                 pooled_output2, _ = self.language_model2(
                     input_ids=passage_input_ids, segment_ids=passage_segment_ids, attention_mask=passage_attention_mask
                 )
-                pooled_output[1] = pooled_output2
+                pooled_output[1] = pooled_output2        
 
         return tuple(pooled_output)
 

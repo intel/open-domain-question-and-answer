@@ -5,10 +5,11 @@ services:
       context: ../../../docker
       dockerfile: Dockerfile
       args:
-        - http_proxy=$HTTP_PROXY
-        - https_proxy=$HTTPS_PROXY
-        - no_proxy=$NO_PROXY
+        - http_proxy=$http_proxy
+        - https_proxy=$https_proxy
+        - no_proxy=$no_proxy
     image: "intel/ai-workflows:odqa-haystack-api"
+    network_mode: host
     ports:
       - 8000:8000
     restart: on-failure
@@ -17,15 +18,15 @@ services:
     #volumes:
     #  - $CUSTOMER_DIR:/home/user/data
     environment:
-      - DOCUMENTSTORE_PARAMS_HOST=elasticsearch
+      - DOCUMENTSTORE_PARAMS_HOST=localhost
       - DOCUMENTSTORE_PARAMS_PORT=9200
       # See rest_api/pipeline/pipelines.haystack-pipeline.yml for configurations of Search & Indexing Pipeline.
       - PIPELINE_YAML_PATH=$PIPELINE_PATH
       - QUERY_PIPELINE_NAME=$PIPELINE_NAME
       - CONCURRENT_REQUEST_PER_WORKER=48
-      - http_proxy=$HTTP_PROXY
-      - https_proxy=$HTTPS_PROXY
-      - no_proxy=$NO_PROXY
+      - http_proxy=$http_proxy
+      - https_proxy=$https_proxy
+      - no_proxy=$no_proxy
       - KMP_BLOCKTIME=20
       - MKL_ENABLE_INSTRUCTIONS=AVX512_E1
       - COLBERT_OPT=$COLBERT_OPT
@@ -57,11 +58,11 @@ services:
       context: ../../../ui
       dockerfile: Dockerfile
       args:
-        - http_proxy=$HTTP_PROXY
-        - https_proxy=$HTTPS_PROXY
-        - no_proxy=$NO_PROXY
+        - http_proxy=$http_proxy
+        - https_proxy=$https_proxy
+        - no_proxy=$no_proxy
     image: "intel/ai-workflows:odqa-haystack-ui"
-    #network_mode: host
+    network_mode: host
     ports:
       - 8501:8501
     restart: on-failure
@@ -69,8 +70,8 @@ services:
       - $UI_CONFIG_DIR:/home/user/data/
     environment:
       - PIPELINE_PATH=$PIPELINE_PATH
-      - API_ENDPOINT=http://haystack-api:8000
-      #- API_ENDPOINT=http://localhost:8000
+      # - API_ENDPOINT=http://haystack-api:8000
+      - API_ENDPOINT=http://localhost:8000
       # The value fot the following variables will be read from the host, if present.
       # They can also be temporarily set for docker-compose, for example:
       # DISABLE_FILE_UPLOAD=1 DEFAULT_DOCS_FROM_RETRIEVER=5 docker-compose up

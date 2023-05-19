@@ -1,0 +1,56 @@
+# To allow your IDE to autocomplete and validate your YAML pipelines, name them as <name of your choice>.haystack-pipeline.yml
+
+version: ignore
+
+components:    # define all the building-blocks for Pipeline
+  - name: DocumentStore
+    type: ElasticsearchDocumentStore
+    params:
+      host: localhost
+      index: document
+  - name: Retriever
+    type: BM25Retriever
+    params:
+      document_store: DocumentStore    # params can reference other components defined in the YAML
+      top_k: 5
+  - name: Ranker
+    type: ColBERTRanker
+    params:
+      model_path: /home/user/data
+  - name: Doc2Answers       # custom-name for the component; helpful for visualization & debugging
+    type: Docs2Answers    # Haystack Class name for the component
+  - name: TextFileConverter
+    type: TextConverter
+  - name: PDFFileConverter
+    type: PDFToTextConverter
+  - name: Preprocessor
+    type: PreProcessor
+    params:
+      split_by: word
+      split_length: 1000
+  - name: FileTypeClassifier
+    type: FileTypeClassifier
+pipelines:
+  - name: query    # a sample extractive-qa Pipeline
+    nodes:
+      - name: Retriever
+        inputs: [Query]
+      - name: Ranker
+        inputs: [Retriever]  
+      - name: Doc2Answers
+        inputs: [Ranker]
+
+  - name: indexing
+    nodes:
+      - name: FileTypeClassifier
+        inputs: [File]
+      - name: TextFileConverter
+        inputs: [FileTypeClassifier.output_1]
+      - name: PDFFileConverter
+        inputs: [FileTypeClassifier.output_2]
+      - name: Preprocessor
+        inputs: [PDFFileConverter, TextFileConverter]
+      - name: Ranker
+        inputs: [Preprocessor]
+      - name: DocumentStore
+        inputs: [Ranker]

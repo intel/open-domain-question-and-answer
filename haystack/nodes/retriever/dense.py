@@ -573,11 +573,11 @@ class DensePassageRetriever(DenseRetriever):
     def _embed_queries_for_xml_model(self, queries: List[str]) -> List[np.ndarray]:
         tokenized_queries = self.query_tokenizer(queries, padding="max_length", return_tensors="pt",
                                  truncation=True, max_length = self.max_seq_len_query)
-
+        
         self.query_encoder.eval()
         # using the [cls] token embedding as query embedding
         query_embeddings = self.query_encoder(**tokenized_queries).last_hidden_state[:,0,:]
-
+        
         return query_embeddings.detach().numpy()
 
     def embed_queries(self, queries: List[str]) -> np.ndarray:
