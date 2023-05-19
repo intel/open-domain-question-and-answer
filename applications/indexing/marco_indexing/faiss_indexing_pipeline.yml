@@ -7,7 +7,7 @@ components:    # define all the building-blocks for Pipeline
     faiss_index_path: /home/user/data/faiss-index-so.faiss
     actor: False
     params:
-      sql_url: postgresql://postgres:postgres@$host_name/haystack
+      sql_url: postgresql://postgres:postgres@$host_ip/haystack # postgresql url, please set host_ip to host IP of head node
       faiss_index_factory_str: HNSW
 
   - name: Retriever
@@ -39,7 +39,7 @@ pipelines:
       - name: Retriever
         inputs: [Dataset]
         serve_deployment_kwargs:
-            num_replicas: 128  # number of replicas to create on the Ray cluster
+            num_replicas: 4  # number of replicas to create on the Ray cluster
             batch_size: 256
             num_cpus: 2
       - name: DocumentStore

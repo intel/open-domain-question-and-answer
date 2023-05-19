@@ -5,7 +5,7 @@ components:    # define all the building-blocks for Pipeline
     type: ElasticsearchDocumentStore
     actor: True
     params:
-      host: $host_name #hostname or host IP of head node
+      host: $host_ip #host IP of head node
       index: document
       embedding_field: question_emb
       embedding_dim: 768
@@ -37,12 +37,12 @@ pipelines:
       - name: Retriever
         inputs: [Dataset]
         serve_deployment_kwargs:
-            num_replicas: 80  # number of replicas to create on the Ray cluster
+            num_replicas: 4  # number of replicas to create on the Ray cluster
             batch_size: 256
             num_cpus: 2
       - name: DocumentStore
         inputs: [Retriever]
         serve_deployment_kwargs:
-            num_replicas: 10  # number of replicas to create on the Ray cluster
+            num_replicas: 4  # number of replicas to create on the Ray cluster
             batch_size: 2000
             num_cpus: 8

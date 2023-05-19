@@ -1,18 +1,16 @@
 nodes:
-  - node: $host_name
+  - node: $host_ip
     type: head
-    cores: 0-87
-    user: yuanwu         #configure the user of head node
-    password: Intel123 #configure the password of head node for sudo executing
+    cores: 0-64
     image: intel/ai-workflows:odqa-haystack-api
     dataset_dir: $dataset_dir
     customer_dir: $customer_dir
-    workspace_dir: ./stackoverflow_indexing
+    workspace_dir: $(pwd)/stackoverflow_indexing
 
-  - node: $host_name
+  - node: $host_ip
     type: worker
     image: intel/ai-workflows:odqa-haystack-api
-    cores: 0-95 
+    cores: 0-71 
     user: $user         #configure the user of worker node for remote access 
     password: $password #configure the password of worker node for remote access and sudo executing
     dataset_dir: $dataset_dir
@@ -24,17 +22,17 @@ pipelines:
     database:
       type: elasticsearch
       image: elasticsearch:7.9.2
-      cores: 88-95
+      cores: 65-71
       data_dir: $data_dir_1
   - name: emr_indexing_pipeline.yml
     database:
       type: elasticsearch
       image: elasticsearch:7.9.2
-      cores: 88-95
+      cores: 65-71
       data_dir: $data_dir_2
   - name: faiss_indexing_pipeline.yml
     database:     # The database containers will run in head node.
       type: postgres
       image: postgres:14.1-alpine
-      cores: 88-95
+      cores: 65-71
       data_dir: $data_dir_3

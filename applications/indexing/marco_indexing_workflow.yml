@@ -1,39 +1,39 @@
 nodes:
-  - node: $host_name $hostname or IP address of head node
-    type: head
-    cores: 0-87
+  - node: $host_ip #IP address of head node, Head node is launched in local machine
+    type: head # value:[head, worker] Must exist.
+    cores: 0-64 #total cpu cores used
     image: intel/ai-workflows:odqa-haystack-api
-    dataset_dir: /home/liukaixu/ws/Dataset/MACRO/QA
-    customer_dir: /home/yuanwu/data
-    workspace_dir: ./marco_indexing
+    dataset_dir: $dataset_dir #mount to /home/user/dataset of container. It should include the dataset files.
+    customer_dir: $customer_dir #mount to /home/user/data of container
+    workspace_dir: $(pwd)/marco_indexing #mount to /home/user/workspace of container. $workspace_dir should be ./marco_indexing for marco indexing.
 
-  - node: $host_name #hostname or IP address of worker node
+  - node: $host_ip #IP address of worker node
     type: worker
     image: intel/ai-workflows:odqa-haystack-api
-    cores: 0-95 
+    cores: 0-71 
     user: $user         #configure the user of worker node for remote access 
     password: $password #configure the password of worker node for remote access and sudo executing
-    dataset_dir: $dataset_dir
-    customer_dir: $customer_dir
-    workspace_dir: $workspace_dir
+    dataset_dir: $dataset_dir #If you use the nfs share storage, it should be same with path of head node.
+    customer_dir: $customer_dir #If you use the nfs share storage, it should be same with path of head node.
+    workspace_dir: $workspace_dir #If you use the nfs share storage, it should be same with path of head node.
  
  
 pipelines:
-  - name: colbert_indexing_pipeline.yml
-    database:
-      type: elasticsearch
-      image: elasticsearch:7.9.2
-      cores: 88-95
-      data_dir: $data_dir_1
+  - name: colbert_indexing_pipeline.yml #The name should be same with file name of pipeline file which is included in $workspace_dir
+    database: # The database containers will be launched in head node.
+      type: elasticsearch # value:[elasticsearch, postgres]. Must be consistent with the database type of DocumentStore configured in the pipeline file 
+      image: elasticsearch:7.9.2 #For elasticsearch, the 7.9.2 is prefered. To change the version, you need to ensure that you use the same version as the query pipeline
+      cores: 65-71
+      data_dir: $data_dir_1 #The data directory of database which mountes to /usr/share/elasticsearch/data of elasticsearch container, or /var/lib/postgresql/data of postgresql container
   - name: emr_indexing_pipeline.yml
     database:
       type: elasticsearch
       image: elasticsearch:7.9.2
-      cores: 88-95
+      cores: 65-71
       data_dir: $data_dir_2
   - name: faiss_indexing_pipeline.yml
     database:     # The database containers will run in head node.
       type: postgres
       image: postgres:14.1-alpine
-      cores: 88-95
+      cores: 65-71
       data_dir: $data_dir_3

@@ -1,34 +1,21 @@
-## Introduction
-The indexing example introduces how to generate the searching database with ElasticSearch and PostgreSQL. It uses [Ray](https://www.ray.io/) to accelerate the indexing speed on multi-nodes.
+# ODQA with StackOverflow dataset
+This guide introduces how to generate the searching database with ElasticSearch and PostgreSQL. It uses [Ray](https://www.ray.io/) to accelerate the indexing speed on multi-nodes. And then deploy search pipeline with web UI.
 
-## Indexing Workflow Examples Execution
+We use StackOverflow dataset in this guide, users can follow this guide on how to integration your own dataset and model.
 
-### Prerequisites
-- OS: Rocky 8.7. The workflow should work on other Linux distributions as well, but only verified on Rocky8.7
-- Network file system(NFS). It is recommended, because the dataset files and model files must exist on each node of Ray cluster.
-- Docker Engine. Please follow [this guide](https://docs.docker.com/engine/install/) to install Docker engine.
-- Python. It should work with other python version, but only verified with Python 3.6.8.
-
-### 1. Build the local docker image (Optional)
-```bash
-./build_img.sh
-```
- **Note:** 
-This step is optional, you can also use the dockerhub image (intel/ai-workflows:odqa-haystack-api). 
-
-### 2. Download the stackoverflow and Microsoft Marco dataset
+## Getting Started
+### Step 1. Download the StackOverflow Dataset
  
-Stackoverflow:
+Download [StackOverflow](https://www.kaggle.com/datasets/stackoverflow/stacksample) dataset
 
-    URL: https://www.kaggle.com/datasets/stackoverflow/stacksample
+```bash
+# create stackoverflow dataset folder
+mkdir stackoverflow
+cd stackoverflow
+# copy downloaded StackOverflow dataset into stackoverflow dataset folder
+```
 
-Microsoft Marco:
-
-    URL: https://msmarco.blob.core.windows.net/msmarco/train_v2.1.json.gz
-    download the train_v2.1.json.gz into ./marco/.
-    gunzip train_v2.1.json.gz
-
-### 3. Download the colbertv2.0 model finetuned by Marco dataset (Optional)
+### Step 2. Download the Colbertv2.0 Model (Optional)
  **Note:** 
  If you will not try the colbert pipelines, skip it.
 ```bash
@@ -37,17 +24,21 @@ wget https://downloads.cs.stanford.edu/nlp/data/colbert/colbertv2/colbertv2.0.ta
 tar -xvzf colbertv2.0.tar.gz
 ```
 
-### 4. Modify the indexing workflow template
+## Run Indexing Pipeline
+First make sure you are in `applications/indexing` folder of the repo
 
-Refer to stackoverflow_indexing_workflow-template.yml. The YAML file must include a head node. The head node should be your local machine which launches the indexing workflow. You can add the worker node uder the nodes component.
-The pipelines component declares the pipelines that need to be executed, and declares the database used by each pipeline. The YAML files of these pipelines are included in $workspace_dir which is ./stackoverflow_indexing for stackoverflow dataset, and ./marco_indexing for marco dataset.
+```bash
+cd applications/indexing
+```
 
-**Note:**
-The $workspace_dir of the head node can be a relative path, but the $workspace_dir of the worker node must be an absolute path.
+### Step 1. Modify the indexing workflow template
+
+Refer to stackoverflow_indexing_workflow.yml. The YAML file must include a head node. The head node should be your local machine which launches the indexing workflow. You can add the worker node under the nodes component.
+The pipelines component declares the pipelines that need to be executed, and declares the database used by each pipeline. The YAML files of these pipelines are included in $workspace_dir which is ./stackoverflow_indexing for stackoverflow dataset.
 
 ```bash
 nodes:
-  - node: $host_name # or IP address of head node. Head node is launched in local machine,
+  - node: $host_ip # IP address of head node. Head node is launched in local machine,
     type: head # value:[head, worker] Must exist.
     cores: $core_range #for example 0-7
     image: intel/ai-workflows:odqa-haystack-api
@@ -55,7 +46,7 @@ nodes:
     customer_dir: $customer_dir #mount to /home/user/data of container
     workspace_dir: $workspace_dir #mount to /home/user/workspace of container. $workspace_dir should be ./stackoverflow_indexing for stackoverflow indexing.
 
-  - node: $host_name # or IP address of worker node.
+  - node: $host_ip # IP address of worker node.
     type: worker
     image: intel/ai-workflows:odqa-haystack-api
     cores: $core_range #for example 0-7
@@ -118,7 +109,7 @@ Directories mounted to database container.
 
     if $data_dir is not exist, it will be created. Please use different directory path for different pipeline.
 
-### 5. Modify the indexing pipeline YAML files in $workspace_dir
+### Step 2. Modify the Indexing Pipeline YAML Files
 
 In pipeline YAML files there are some parameters need to be modified. These pipeline YAML files is under your $workspace_dir. 
 
@@ -139,7 +130,7 @@ Edit these YAML files according to your local runtime environment.
     type: ElasticsearchDocumentStore
     actor: True
     params:
-      host: $host_name
+      host: $host_ip
   ```
   FAISSDocumentStore:
   ```bash
@@ -148,7 +139,7 @@ Edit these YAML files according to your local runtime environment.
     faiss_index_path: /home/user/data/faiss-index-so.faiss
     actor: False
     params:
-      sql_url: postgresql://postgres:postgres@$host_name/haystack
+      sql_url: postgresql://postgres:postgres@$host_ip/haystack
       faiss_index_factory_str: HNSW
   ```
 - Check the files path of $customer_dir and $dataset_dir. They are mounted into containers of Ray head and workers. They should include the dataset files or finetuned models downloaded by yourself. If there are subdirectories in these directories, please modify the corresponding path.
@@ -203,48 +194,130 @@ Edit these YAML files according to your local runtime environment.
       num_cpus: 2
   ```
 
-
-### 6. Generate the stackoverflow or marco database
+### Step 3. Generate the Stackoverflow Database
 Launch the Ray cluster for indexing workflows.
 ```bash
-#Launch Ray cluster for marco indexing workflow
-$ python launch_indexing_workflow.py -w marco_indexing_workflow.yml
-
 #Launch Ray cluster for stackoverflow indexing workflow
 $ python launch_indexing_workflow.py -w stackoverflow_indexing_workflow.yml
 ```
 
 Run the indexing workflows on Ray cluster. The -p option value is the name of pipeline YAML file or all.
+
  **Note:**
  For faster debugging and demonstration demo, you can choose the Marco dataset and use the -s option to take only 500 samples from dataset for indexing
 
 ```bash
-#Run all pipelines defined in marco_indexing_workflow.yml
-$ python launch_indexing_workflow.py -w marco_indexing_workflow.yml -p all
+#Run all pipelines defined in stackoverflow_indexing_workflow.yml
+$ python launch_indexing_workflow.py -w stackoverflow_indexing_workflow.yml -p all
 
-#Run faiss_indexing_pipeline.yml defined in the marco_indexing_workflow.yml
-$ python launch_indexing_workflow.py -w marco_indexing_workflow.yml -p faiss_indexing_pipeline.yml
+#Run faiss_indexing_pipeline.yml defined in the stackoverflow_indexing_workflow.yml
+$ python launch_indexing_workflow.py -w stackoverflow_indexing_workflow.yml -p faiss_indexing_pipeline.yml
 
-#Run faiss_indexing_pipeline.yml defined in the marco_indexing_workflow.yml, only take 500 samples from dataset for indexing pipeline debugging or demo.
-$ python launch_indexing_workflow.py -w marco_indexing_workflow.yml -p faiss_indexing_pipeline.yml -s 1
+#Run faiss_indexing_pipeline.yml defined in the stackoverflow_indexing_workflow.yml, only take 500 samples from dataset for indexing pipeline debugging or demo.
+$ python launch_indexing_workflow.py -w stackoverflow_indexing_workflow.yml -p faiss_indexing_pipeline.yml -s 1
 ```
 
-Somemtimes you need to clean previous containers you have ran, you can use following commands on all nodes of your Ray cluster.
+After generating the database of Faiss pipeline, copy and save the indexing files of $customer_dir to avoid them being overwritten by the new faiss indexing workflow.
 
- ```bash
+Clean previous containers you have ran, you can use following commands on all nodes of your Ray cluster.
+
+```bash
 # Clean all the Ray and database containers running in local node.
 $ ./run-ray-cluster.sh -r clean_all
-
 # Clean all the database containers running in local node.
 $ ./run-ray-cluster.sh -r clean_db
 ```
 
- **Note:**
-
- After generating the database, commit the database containers immediately, If you don't specify the $data_dir of database data folder.
+## Run Search Pipeline
+First make sure you are in `applications/odqa-pipelines` folder of the repo
 
 ```bash
-docker commit ${database_container_name or hash code}  ${image name}
+cd applications/odqa_pipelines
 ```
 
-After generating the database of Faiss pipeline, copy and save the indexing files of $customer_dir to avoid them being overwritten by the new faiss indexing workflow.
+### Option 1. Run EMR Pipeline
+>Note: Please make sure you have completed emr_indexing_pipeline.yml indexing pipeline
+
+ElasticsearchDocumentStore->EmbeddingRetriever(deepset/sentence_bert)->Docs2Answers
+  
+<p align="center"> <img src="../images/pipeline1.PNG" height="180px"><br></p>
+  
+Modify the config file `config/env.stackoverflow.esds_emr_faq`
+
+```bash
+# set the $data_dir to the data folder of elasticsearch database, please refer to applications/indexing/stackoverflow_indexing_workflow.yml
+DATA_DIR=$data_dir 
+```
+
+Run workflow: 
+
+```bash
+#deploy search pipeline with stackoverflow database
+docker-compose -f docker-compose/docker-compose.yml --env-file config/env.stackoverflow.esds_emr_faq up
+```
+
+### Option 2. Run Cobert Pipeline
+>Note: Please make sure you have completed colbert_indexing_pipeline.yml indexing pipeline
+
+ElasticsearchDocumentStore->BM25Retriever->ColbertRanker-> Docs2Answers
+
+<p align="center"> <img src="../images/pipeline2.PNG" height="180px"><br></p>
+
+Modify the config file `config/env.stackoverflow.esds_bm25r_colbert`
+
+```bash
+# set the $data_dir to the data folder of elasticsearch database, please refer to applications/indexing/stackoverflow_indexing_workflow.yml
+DATA_DIR=$data_dir
+# set the $customer_dir to the absolute ColbertV2.0 model path you placed
+CUSTOMER_DIR=$customer_dir
+```
+
+Modify the docker compose file `docker-compose/docker-compose.yml`, uncomment the following lines.
+```bash
+  #volumes:
+  #  - $CUSTOMER_DIR:/home/user/data
+```
+
+Run workflow:
+
+```bash
+#deploy search pipeline with stackoverflow database
+docker-compose -f docker-compose/docker-compose.yml --env-file config/env.stackoverflow.esds_bm25r_colbert up
+```
+
+### Option 3. Run DPR Pipeline
+>Note: Please make sure you have completed faiss_indexing_pipeline.yml indexing pipeline
+
+FAISSDocumentStore->DensePassageRetriever->Docs2Answers
+
+<p align="center"> <img src="../images/pipeline3.PNG" height="180px"><br></p>
+
+Modify the config file `config/env.stackoverflow.faiss_dpr`
+
+```bash
+# set the $data_dir to the data folder of postgresql database, please refer to applications/indexing/stackoverflow_indexing_workflow.yml
+DATA_DIR=$data_dir
+# set the $customer_dir to the absolute path where you store faiss indexing files.
+CUSTOMER_DIR=$customer_dir
+```
+
+Modify the docker compose file `docker-compose/docker-compose-dpr.yml`, uncomment the following lines.
+
+```bash
+  #volumes:
+  #  - $CUSTOMER_DIR:/home/user/data
+```
+
+Run workflows:
+
+```bash
+#deploy search pipeline with stackoverflow database
+docker-compose -f docker-compose/docker-compose-dpr.yml --env-file config/env.stackoverflow.faiss_dpr up 
+```
+
+## Expected Output
+Once you deployed search pipeline successfully, open a browser and input following url to access web UI
+
+```bash
+<host_ip>:8501
+```

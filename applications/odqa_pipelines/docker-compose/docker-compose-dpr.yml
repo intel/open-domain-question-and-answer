@@ -5,10 +5,11 @@ services:
       context: ../../../docker
       dockerfile: Dockerfile
       args:
-        - http_proxy=$HTTP_PROXY
-        - https_proxy=$HTTPS_PROXY
-        - no_proxy=$NO_PROXY
+        - http_proxy=$http_proxy
+        - https_proxy=$https_proxy
+        - no_proxy=$no_proxy
     image: "intel/ai-workflows:odqa-haystack-api"
+    network_mode: host
     # Mount custom Pipeline YAML and custom Components.
     volumes:
       - $CUSTOMER_DIR:/home/user/data
@@ -21,9 +22,9 @@ services:
       - QUERY_PIPELINE_NAME=$PIPELINE_NAME
       - INDEX_NAME=$INDEX_NAME
       - CONCURRENT_REQUEST_PER_WORKER
-      - http_proxy=$HTTP_PROXY
-      - https_proxy=$HTTPS_PROXY
-      - no_proxy=$NO_PROXY
+      - http_proxy=$http_proxy
+      - https_proxy=$https_proxy
+      - no_proxy=$no_proxy
       #- ONEDNN_VERBOSE=1
       - KMP_BLOCKTIME=20
       - MKL_ENABLE_INSTRUCTIONS=AVX512_E1
@@ -50,17 +51,17 @@ services:
       context: ../../../ui
       dockerfile: Dockerfile
       args:
-        - http_proxy=$HTTP_PROXY
-        - https_proxy=$HTTPS_PROXY
+        - http_proxy=$http_proxy
+        - https_proxy=$https_proxy
     image: "intel/ai-workflows:odqa-haystack-ui"
-    #network_mode: host
+    network_mode: host
     ports:
       - 8501:8501
     restart: on-failure
     volumes:
       - $UI_CONFIG_DIR:/home/user/data/
     environment:
-      - API_ENDPOINT=http://haystack-api:8000
+      - API_ENDPOINT=http://localhost:8000
       - EVAL_FILE=ui/eval_labels_example.csv
       - PIPELINE_PATH=$PIPELINE_PATH
       # The value fot the following variables will be read from the host, if present.
