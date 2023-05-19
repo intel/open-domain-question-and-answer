@@ -59,8 +59,8 @@ sudo su
 
 ### Step 2. Download the Workflow Repository
 ```bash
-git clone https://github.com/intel-sandbox/applications.ai.appliedml.workflow.odqa.git
-cd applications.ai.appliedml.workflow.odqa/
+git clone https://github.com/intel/open-domain-question-and-answer.git
+cd open-domain-question-and-answer/
 git submodule update --init --recursive
 ```
 
