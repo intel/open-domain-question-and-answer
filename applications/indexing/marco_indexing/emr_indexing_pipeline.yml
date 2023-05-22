@@ -36,12 +36,12 @@ pipelines:
       - name: Retriever
         inputs: [Dataset]
         serve_deployment_kwargs:
-            num_replicas: 4  # number of replicas to create on the Ray cluster
+            num_replicas: 128  # number of replicas to create on the Ray cluster
             batch_size: 16
             num_cpus: 2
       - name: DocumentStore
         inputs: [Retriever]
         serve_deployment_kwargs:
-            num_replicas: 4  # number of replicas to create on the Ray cluster
+            num_replicas: 10  # number of replicas to create on the Ray cluster
             batch_size: 2000
             num_cpus: 8
